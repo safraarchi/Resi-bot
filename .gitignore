@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Environment and sensitive secrets
+.env
+.env.local
+
+# Storage & samples (customer receipts & personal data)
+storage/
+test_output/
+Sample/
+
+# Experimental / scratch scripts
+scratch_*.js
+
+# Logs and system files
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
