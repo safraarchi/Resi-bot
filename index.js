@@ -4,6 +4,8 @@ const path = require('path');
 const config = require('./src/config');
 const queueService = require('./src/queueService');
 const { mergeLabelsToA4, parseShippingText } = require('./src/pdfService');
+const { getManifestForQueue, formatListMessage, formatPackingSummary } = require('./src/manifestService');
+const { printPdfMonochrome, getAvailablePrinters } = require('./src/printerService');
 const { initScheduler } = require('./src/cronService');
 const { authMiddleware, adminOnly } = require('./src/authMiddleware');
 
@@ -40,6 +42,20 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;');
 }
 
+// Helper to check if a Telegram message still exists in the chat (detects deleted/pulled messages)
+async function isMessageAlive(chatId, messageId) {
+  if (!chatId || !messageId) return true;
+  try {
+    await bot.telegram.editMessageReplyMarkup(chatId, messageId, null, {});
+    return true;
+  } catch (err) {
+    if (err.message && err.message.includes('message to edit not found')) {
+      return false; // Pesan telah dihapus/ditarik dari chat!
+    }
+    return true; // Pesan masih ada di grup
+  }
+}
+
 // Global Security Middleware: Blocks unauthorized users silently if configured
 bot.use(authMiddleware);
 
@@ -54,8 +70,9 @@ function updateActiveChat(chatId) {
 
 // Register simple commands in Telegram UI
 const COMMANDS_LIST = [
-  { command: 'cetak', description: '🖨️ Cetak & gabungkan semua resi ke PDF A4' },
-  { command: 'list', description: '📋 Cek rincian daftar resi dalam antrean' },
+  { command: 'cetak', description: '🖨️ Gabung PDF A4 & rekap manifest barang' },
+  { command: 'print', description: '⚡ Cetak langsung ke EPSON L3250 (Hitam Putih)' },
+  { command: 'list', description: '📋 Cek daftar antrean: Nama, Barang, SKU, Qty' },
   { command: 'status', description: '📊 Cek jumlah total resi menunggu' },
   { command: 'ulang', description: '🔄 Kirim ulang file cetak PDF terakhir' },
   { command: 'manual', description: '📝 Ambil contoh format resi manual' },
@@ -69,7 +86,29 @@ bot.telegram.setMyCommands(COMMANDS_LIST, { scope: { type: 'all_private_chats' }
 /**
  * Perform merge and send output to chat (organized into storage/output/YYYY-MM-DD/)
  */
-async function processBatchAndSend(chatId, triggeredBy = 'manual') {
+async function processBatchAndSend(chatId, triggeredBy = 'manual', directPrint = false) {
+  // Pre-validation: detect & discard any receipts whose Telegram messages were deleted/pulled
+  const currentItems = queueService.getQueueItems();
+  const deletedItems = [];
+  for (const item of currentItems) {
+    if (item.messageId && item.chatId) {
+      const alive = await isMessageAlive(item.chatId, item.messageId);
+      if (!alive) {
+        queueService.cancelQueueItemByMessageId(item.messageId);
+        deletedItems.push(item);
+      }
+    }
+  }
+
+  if (deletedItems.length > 0 && chatId) {
+    const listNames = deletedItems.map(d => `• ${escapeHtml(d.title || d.fileName)}`).join('\n');
+    await bot.telegram.sendMessage(
+      chatId,
+      `ℹ️ <b>Pembersihan Resi Ditarik:</b>\nSebanyak <b>${deletedItems.length}</b> resi otomatis dikeluarkan karena pesannya telah dihapus di grup:\n${listNames}`,
+      { parse_mode: 'HTML' }
+    ).catch(() => {});
+  }
+
   const queueFiles = queueService.getQueueFiles();
   const count = queueFiles.length;
 
@@ -100,9 +139,10 @@ async function processBatchAndSend(chatId, triggeredBy = 'manual') {
 
   let statusMsg = null;
   if (chatId) {
+    const printNote = directPrint ? ' & mengirim ke printer...' : '...';
     statusMsg = await bot.telegram.sendMessage(
       chatId,
-      `⏳ Menyusun <b>${count}</b> resi ke dalam PDF A4 (Grid 2x2 / 4 resi per lembar)...`,
+      `⏳ Menyusun <b>${count}</b> resi ke dalam PDF A4 (Grid 2x2)${printNote}`,
       { parse_mode: 'HTML' }
     ).catch(() => null);
   }
@@ -121,7 +161,7 @@ async function processBatchAndSend(chatId, triggeredBy = 'manual') {
                    `📄 <b>Jumlah Halaman A4:</b> ${mergeResult.totalPages} lembar\n` +
                    `✂️ <b>Format:</b> Grid 2x2 (4 resi per lembar A4)\n` +
                    `⏰ <b>Waktu:</b> ${now.toLocaleTimeString('id-ID')} WIB\n\n` +
-                   `<i>File siap langsung dicetak! Antrean sudah diarsipkan per tanggal untuk batch berikutnya.</i>`,
+                   `<i>File PDF tersimpan di arsip per tanggal. Rekap manifest barang dikirim di bawah.</i>`,
           parse_mode: 'HTML',
         }
       );
@@ -130,6 +170,45 @@ async function processBatchAndSend(chatId, triggeredBy = 'manual') {
         try {
           await bot.telegram.deleteMessage(chatId, statusMsg.message_id);
         } catch (_) {}
+      }
+    }
+
+    // Generate Packing Manifest Summary
+    let manifestText = '';
+    try {
+      const activeItems = currentItems.filter(it => !deletedItems.includes(it));
+      const manifestList = await getManifestForQueue(activeItems);
+      manifestText = formatPackingSummary(manifestList, `${dateStr} ${timeStr.replace('-', ':')} WIB`);
+    } catch (mErr) {
+      console.error('Gagal membuat manifest summary:', mErr);
+    }
+
+    if (chatId && manifestText) {
+      await bot.telegram.sendMessage(chatId, manifestText, { parse_mode: 'HTML' }).catch(() => {});
+    }
+
+    // Direct Silent Printing to Physical Printer in Monochrome (Hitam Putih)
+    if (directPrint) {
+      const printRes = await printPdfMonochrome(outputPath);
+      if (chatId) {
+        if (printRes.success) {
+          await bot.telegram.sendMessage(
+            chatId,
+            `🖨️ <b>Perintah Cetak Berhasil Dikirim ke Printer Fisik!</b>\n` +
+            `• <b>Printer:</b> <b>${escapeHtml(printRes.printer)}</b>\n` +
+            `• <b>Warna:</b> Hitam Putih (Monochrome)\n` +
+            `• <b>Total:</b> ${mergeResult.totalPages} lembar A4\n\n` +
+            `<i>Dokumen sedang diproses printer fisik. Anda tidak perlu tekan Ctrl+P manual.</i>`,
+            { parse_mode: 'HTML' }
+          ).catch(() => {});
+        } else {
+          await bot.telegram.sendMessage(
+            chatId,
+            `⚠️ <b>Gagal Kirim ke Printer Fisik:</b> ${escapeHtml(printRes.error)}\n` +
+            `<i>File PDF aman terkirim di atas, Anda tetap dapat mencetak manual lewat PDF.</i>`,
+            { parse_mode: 'HTML' }
+          ).catch(() => {});
+        }
       }
     }
 
@@ -203,8 +282,8 @@ function sendStatus(ctx) {
 
 bot.command('status', sendStatus);
 
-// List / Daftar command (Audit rincian antrean)
-function sendQueueList(ctx) {
+// List / Daftar command (Audit rincian antrean: Nama, Barang, SKU, Qty)
+async function sendQueueList(ctx) {
   updateActiveChat(ctx.chat.id);
   const items = queueService.getQueueItems();
   if (items.length === 0) {
@@ -214,38 +293,48 @@ function sendQueueList(ctx) {
     ).catch(() => {});
   }
 
-  const pagesEstimate = Math.ceil(items.length / 4);
-  let listText = `📋 <b>DAFTAR RESI DALAM ANTREAN (${items.length} resi):</b>\n\n`;
-
-  items.forEach((item, index) => {
-    const num = index + 1;
-    if (item.type === 'manual') {
-      const ket = item.keterangan ? ` - <i>${escapeHtml(item.keterangan.slice(0, 25))}</i>` : '';
-      listText += `${num}. 📝 <b>[Manual]</b> ${escapeHtml(item.recipient || item.title)}${ket}\n`;
-    } else if (item.type === 'photo') {
-      listText += `${num}. 📸 <b>[Foto]</b> ${escapeHtml(item.fileName)}\n`;
-    } else {
-      listText += `${num}. 📄 <b>[PDF]</b> <code>${escapeHtml(item.fileName)}</code>\n`;
-    }
-  });
-
-  listText +=
-    `\n📄 <b>Estimasi:</b> ${pagesEstimate} lembar A4 (Grid 2x2)\n` +
-    `👉 <i>Ketik /cetak untuk satukan ke PDF A4.</i>\n` +
-    `💡 <i>Untuk membatalkan salah satu, balas chat resinya dengan kata "batal" atau ketik /batal [nomor].</i>`;
-
-  ctx.reply(listText, { parse_mode: 'HTML' }).catch(() => {});
+  try {
+    const manifestList = await getManifestForQueue(items);
+    const listText = formatListMessage(manifestList);
+    ctx.reply(listText, { parse_mode: 'HTML' }).catch(() => {});
+  } catch (err) {
+    console.error('Gagal membuat daftar antrean:', err);
+    ctx.reply(`❌ Gagal membaca antrean: ${escapeHtml(err.message)}`).catch(() => {});
+  }
 }
 
 bot.command(['list', 'daftar', 'antrean', 'queue'], sendQueueList);
 
-// Print command
+// Print command (Generates A4 PDF & Sends Packing List)
 async function handlePrint(ctx) {
   updateActiveChat(ctx.chat.id);
-  await processBatchAndSend(ctx.chat.id, 'manual');
+  await processBatchAndSend(ctx.chat.id, 'manual', false);
 }
 
-bot.command(['cetak', 'print', 'merge', 'gabung'], handlePrint);
+// Direct Silent Print command (Generates A4 PDF, Sends Packing List & Prints Monochrome to EPSON L3250)
+async function handleDirectPrint(ctx) {
+  updateActiveChat(ctx.chat.id);
+  await processBatchAndSend(ctx.chat.id, 'manual', true);
+}
+
+bot.command(['cetak', 'gabung'], handlePrint);
+bot.command(['print', 'cetak_langsung', 'direct_print', 'print_langsung'], handleDirectPrint);
+
+// Check printer status command
+bot.command(['printer', 'cek_printer'], async (ctx) => {
+  updateActiveChat(ctx.chat.id);
+  const printers = await getAvailablePrinters();
+  const defPrinter = config.PRINTER_NAME || 'EPSON L3250 Series';
+  const pList = printers.map(p => `• ${p.name === defPrinter ? '⭐ ' : ''}<b>${escapeHtml(p.name)}</b>`).join('\n') || 'Tidak ada printer terdeteksi';
+  ctx.reply(
+    `🖨️ <b>INFORMASI PRINTER KOMPUTER:</b>\n\n` +
+    `• <b>Printer Aktif:</b> <b>${escapeHtml(defPrinter)}</b>\n` +
+    `• <b>Mode Warna:</b> Hitam Putih (Monochrome)\n\n` +
+    `<b>Daftar Printer Terdeteksi di Windows:</b>\n${pList}\n\n` +
+    `👉 <i>Ketik /print untuk cetak langsung ke printer fisik tanpa perlu buka PDF.</i>`,
+    { parse_mode: 'HTML' }
+  ).catch(() => {});
+});
 
 // Reprint command (/ulang atau /terakhir)
 async function handleReprint(ctx) {
@@ -407,6 +496,9 @@ async function handleManualInput(ctx) {
     return sendManualTemplate(ctx);
   }
 
+  const alive = await isMessageAlive(ctx.chat.id, ctx.message.message_id);
+  if (!alive) return;
+
   try {
     const senderName = ctx.from ? (ctx.from.username ? `@${ctx.from.username}` : ctx.from.first_name) : 'Staff';
     const replyToMessageId = ctx.message.reply_to_message ? ctx.message.reply_to_message.message_id : null;
@@ -433,10 +525,13 @@ async function handleManualInput(ctx) {
 
     // Scenario: Duplicate
     if (res.isDuplicate) {
+      const orig = res.existingItem || {};
+      const senderInfo = orig.senderName ? ` oleh <b>${escapeHtml(orig.senderName)}</b>` : '';
+      const timeInfo = orig.createdAt ? ` pada ${new Date(orig.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB` : '';
+
       return await ctx.reply(
-        `⚠️ <b>Resi Manual Duplikat Terdeteksi!</b>\n` +
-        `Data atas nama <b>${escapeHtml(res.existingItem.recipient || res.existingItem.title)}</b> (${escapeHtml(res.existingItem.phone)}) sudah ada di antrean.\n` +
-        `<i>Jika ingin mengganti/merevisi alamat, silakan balas (reply) pesan yang lama dengan format baru.</i>`,
+        `⚠️ <b>Resi Manual Duplikat Ditolak!</b>\n` +
+        `Data penerima <b>${escapeHtml(orig.recipient || orig.title)}</b> (${escapeHtml(orig.phone)}) sama persis dengan yang sudah dikirim${senderInfo}${timeInfo}.`,
         { parse_mode: 'HTML', reply_to_message_id: ctx.message.message_id }
       );
     }
@@ -476,6 +571,12 @@ bot.on('document', async (ctx) => {
     return; // Ignore non-PDF documents
   }
 
+  const alive = await isMessageAlive(ctx.chat.id, ctx.message.message_id);
+  if (!alive) {
+    console.log(`[SKIP DELETED] Dokumen ID ${ctx.message.message_id} (${fileName}) dilewati karena sudah dihapus di chat.`);
+    return;
+  }
+
   try {
     const fileLink = await ctx.telegram.getFileLink(doc.file_id);
     const response = await fetch(fileLink.href);
@@ -493,10 +594,13 @@ bot.on('document', async (ctx) => {
     });
 
     if (res.isDuplicate) {
+      const orig = res.existingItem || {};
+      const senderInfo = orig.senderName ? ` oleh <b>${escapeHtml(orig.senderName)}</b>` : '';
+      const timeInfo = orig.createdAt ? ` pada ${new Date(orig.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB` : '';
+
       return ctx.reply(
         `⚠️ <b>File Duplikat Ditolak!</b>\n` +
-        `File <code>${escapeHtml(fileName)}</code> sudah ada di dalam antrean.\n` +
-        `<i>Tidak dimasukkan ganda agar kertas stiker tidak terbuang.</i>`,
+        `File <code>${escapeHtml(fileName)}</code> sama persis dengan file yang sudah dikirim${senderInfo}${timeInfo}.`,
         { parse_mode: 'HTML', reply_to_message_id: ctx.message.message_id }
       ).catch(() => {});
     }
@@ -522,6 +626,9 @@ bot.on('photo', async (ctx) => {
   const photos = ctx.message.photo;
   if (!photos || photos.length === 0) return;
 
+  const alive = await isMessageAlive(ctx.chat.id, ctx.message.message_id);
+  if (!alive) return;
+
   const bestPhoto = photos[photos.length - 1];
 
   try {
@@ -541,8 +648,12 @@ bot.on('photo', async (ctx) => {
     });
 
     if (res.isDuplicate) {
+      const orig = res.existingItem || {};
+      const senderInfo = orig.senderName ? ` oleh <b>${escapeHtml(orig.senderName)}</b>` : '';
+      const timeInfo = orig.createdAt ? ` pada ${new Date(orig.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB` : '';
+
       return ctx.reply(
-        `⚠️ <b>Gambar Duplikat Ditolak!</b>\nGambar resi ini sudah pernah dimasukkan ke antrean.`,
+        `⚠️ <b>Gambar Duplikat Ditolak!</b>\nGambar resi ini sama persis dengan yang sudah dikirim${senderInfo}${timeInfo}.`,
         { parse_mode: 'HTML', reply_to_message_id: ctx.message.message_id }
       ).catch(() => {});
     }
@@ -605,8 +716,8 @@ bot.telegram.getMe().then((me) => {
 • Waktu Mulai    : ${new Date().toLocaleString('id-ID')}
 • Folder Antrean : ${config.PATHS.QUEUE}
 • Folder Output  : ${config.PATHS.OUTPUT} (Organized by Date)
-• Fitur Baru     : Cancel via Reply "batal", Anti-Dobel,
-                   Revisi /manual, Audit /list, Reprint /ulang
+• Printer Fisik  : ${config.PRINTER_NAME || 'EPSON L3250 Series'} (Hitam Putih)
+• Perintah Baru  : /print (Cetak Fisik), /list (Nama, SKU, Qty), Rekap Manifest
 • Jadwal Cron    : ${(!config.CRON_SCHEDULE || ['disabled', 'false', 'none', 'off'].includes(config.CRON_SCHEDULE.toLowerCase())) ? 'DINONAKTIFKAN (Manual via /cetak)' : config.CRON_SCHEDULE}
 ============================================================
 Bot siap menerima PDF & Teks /manual di Telegram!

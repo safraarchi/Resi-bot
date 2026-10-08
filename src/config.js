@@ -55,6 +55,9 @@ module.exports = {
   // Auto-send merged file back to the group/chat where resi were sent?
   AUTO_SEND_MERGED_PDF: process.env.AUTO_SEND_MERGED_PDF !== 'false',
 
+  // Target printer name for direct monochrome printing
+  PRINTER_NAME: process.env.PRINTER_NAME || 'EPSON L3250 Series',
+
   // Directory paths
   PATHS: {
     ROOT: ROOT_DIR,

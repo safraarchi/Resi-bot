@@ -65,6 +65,11 @@ function getHash(buffer) {
   return crypto.createHash('md5').update(buffer).digest('hex');
 }
 
+function normalizePath(p) {
+  if (!p) return '';
+  return path.resolve(p).toLowerCase();
+}
+
 /**
  * Synchronize metadata with actual disk files in storage/queue/
  */
@@ -72,24 +77,51 @@ function syncQueue() {
   ensureDirs();
   const existingFiles = fs.readdirSync(PATHS.QUEUE)
     .filter(file => file.toLowerCase().endsWith('.pdf'))
-    .map(file => path.join(PATHS.QUEUE, file));
+    .map(file => path.resolve(PATHS.QUEUE, file));
 
   let metaList = loadMeta();
 
-  // Remove entries whose files no longer exist on disk
-  metaList = metaList.filter(item => fs.existsSync(item.filePath));
+  // 1. Remove entries whose files no longer exist on disk
+  metaList = metaList.filter(item => item && item.filePath && fs.existsSync(item.filePath));
 
-  // Add untracked files found on disk
+  // 2. Deduplicate metaList by normalized lower-case path (keep items with messageId/sender over auto-created)
+  metaList.sort((a, b) => {
+    const aScore = (a.messageId ? 10 : 0) + (a.senderName && a.senderName !== 'Sistem' ? 5 : 0);
+    const bScore = (b.messageId ? 10 : 0) + (b.senderName && b.senderName !== 'Sistem' ? 5 : 0);
+    return bScore - aScore;
+  });
+
+  const dedupedMeta = [];
+  const seenPaths = new Set();
+  for (const item of metaList) {
+    const norm = normalizePath(item.filePath);
+    if (!seenPaths.has(norm)) {
+      seenPaths.add(norm);
+      item.filePath = path.resolve(item.filePath);
+      dedupedMeta.push(item);
+    }
+  }
+  metaList = dedupedMeta;
+
+  // 3. Add untracked files found on disk
   for (const filePath of existingFiles) {
-    const alreadyTracked = metaList.some(item => path.resolve(item.filePath) === path.resolve(filePath));
-    if (!alreadyTracked) {
+    const norm = normalizePath(filePath);
+    if (!seenPaths.has(norm)) {
       const baseName = path.basename(filePath);
       let fileHash = '';
       try {
         fileHash = getHash(fs.readFileSync(filePath));
       } catch (_) {}
 
-      metaList.push({
+      // If an item in meta already has this hash, point it to this file
+      const existingHashItem = metaList.find(it => it.fileHash && it.fileHash === fileHash);
+      if (existingHashItem) {
+        existingHashItem.filePath = filePath;
+        seenPaths.add(norm);
+        continue;
+      }
+
+      const newItem = {
         id: `auto_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         fileName: baseName,
         filePath: filePath,
@@ -101,7 +133,9 @@ function syncQueue() {
         senderName: 'Sistem',
         createdAt: new Date().toISOString(),
         dateStr: todayStr(),
-      });
+      };
+      metaList.push(newItem);
+      seenPaths.add(norm);
     }
   }
 
