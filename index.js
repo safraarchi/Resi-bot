@@ -28,6 +28,13 @@ Langkah mudah mengaktifkan bot:
 
 const bot = new Telegraf(config.BOT_TOKEN);
 
+// Silence unnecessary standardFontDataUrl warning from pdfjs
+const originalWarn = console.warn;
+console.warn = function(...args) {
+  if (typeof args[0] === 'string' && args[0].includes('standardFontDataUrl')) return;
+  originalWarn.apply(console, args);
+};
+
 // Global Error Handler to keep bot always running
 bot.catch((err, ctx) => {
   console.error('[TELEGRAF ERROR]', err.message || err);
@@ -70,8 +77,9 @@ function updateActiveChat(chatId) {
 
 // Register simple commands in Telegram UI
 const COMMANDS_LIST = [
-  { command: 'cetak', description: '🖨️ Gabung PDF A4 & rekap manifest barang' },
-  { command: 'print', description: '⚡ Cetak langsung ke EPSON L3250 (Hitam Putih)' },
+  { command: 'print', description: '🖨️ Cetak fisik EPSON L3250 + kirim PDF & rekap' },
+  { command: 'gabung', description: '📄 Gabung PDF A4 & rekap saja (tanpa print fisik)' },
+  { command: 'cetak', description: '🖨️ Cetak langsung ke EPSON L3250 (alias /print)' },
   { command: 'list', description: '📋 Cek daftar antrean: Nama, Barang, SKU, Qty' },
   { command: 'status', description: '📊 Cek jumlah total resi menunggu' },
   { command: 'ulang', description: '🔄 Kirim ulang file cetak PDF terakhir' },
@@ -148,10 +156,13 @@ async function processBatchAndSend(chatId, triggeredBy = 'manual', directPrint =
   }
 
   try {
+    console.log(`[BATCH START] Memproses ${count} resi (directPrint: ${directPrint})...`);
     const mergeResult = await mergeLabelsToA4(queueFiles, outputPath);
+    console.log(`[BATCH MERGED] Sukses gabung ${mergeResult.totalLabels} resi ke ${outputPath} (${mergeResult.totalPages} lembar A4).`);
 
     // Send the compiled PDF document
     if (chatId) {
+      console.log(`[BATCH SEND] Mengirim file PDF ke chat ${chatId}...`);
       await bot.telegram.sendDocument(
         chatId,
         { source: outputPath, filename: outputFileName },
@@ -184,11 +195,13 @@ async function processBatchAndSend(chatId, triggeredBy = 'manual', directPrint =
     }
 
     if (chatId && manifestText) {
+      console.log(`[BATCH MANIFEST] Mengirim rekap packing barang...`);
       await bot.telegram.sendMessage(chatId, manifestText, { parse_mode: 'HTML' }).catch(() => {});
     }
 
     // Direct Silent Printing to Physical Printer in Monochrome (Hitam Putih)
     if (directPrint) {
+      console.log(`[BATCH PRINT] Mengirim file ${outputPath} ke printer fisik...`);
       const printRes = await printPdfMonochrome(outputPath);
       if (chatId) {
         if (printRes.success) {
@@ -217,8 +230,13 @@ async function processBatchAndSend(chatId, triggeredBy = 'manual', directPrint =
     console.log(`[BATCH SUCCESS] ${mergeResult.totalLabels} resi digabung ke ${outputFileName} (diarsipkan ke ${batchId})`);
   } catch (err) {
     console.error('[MERGE ERROR]', err);
+    if (statusMsg && chatId) {
+      try {
+        await bot.telegram.deleteMessage(chatId, statusMsg.message_id);
+      } catch (_) {}
+    }
     if (chatId) {
-      await bot.telegram.sendMessage(chatId, `❌ Gagal menggabungkan resi: ${err.message}`).catch(() => {});
+      await bot.telegram.sendMessage(chatId, `❌ Gagal memproses resi: ${escapeHtml(err.message)}`).catch(() => {});
     }
   }
 }
@@ -305,20 +323,20 @@ async function sendQueueList(ctx) {
 
 bot.command(['list', 'daftar', 'antrean', 'queue'], sendQueueList);
 
-// Print command (Generates A4 PDF & Sends Packing List)
+// Gabung command (Generates A4 PDF & Sends Packing List without physical printing)
 async function handlePrint(ctx) {
   updateActiveChat(ctx.chat.id);
   await processBatchAndSend(ctx.chat.id, 'manual', false);
 }
 
-// Direct Silent Print command (Generates A4 PDF, Sends Packing List & Prints Monochrome to EPSON L3250)
+// Print / Cetak command (Generates A4 PDF, Sends Packing List & Prints Monochrome to EPSON L3250)
 async function handleDirectPrint(ctx) {
   updateActiveChat(ctx.chat.id);
   await processBatchAndSend(ctx.chat.id, 'manual', true);
 }
 
-bot.command(['cetak', 'gabung'], handlePrint);
-bot.command(['print', 'cetak_langsung', 'direct_print', 'print_langsung'], handleDirectPrint);
+bot.command(['gabung', 'gabungkan'], handlePrint);
+bot.command(['print', 'cetak', 'cetak_langsung', 'direct_print', 'print_langsung'], handleDirectPrint);
 
 // Check printer status command
 bot.command(['printer', 'cek_printer'], async (ctx) => {
