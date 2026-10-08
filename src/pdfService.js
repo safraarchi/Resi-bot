@@ -336,11 +336,21 @@ async function detectContentBounds(pdfBytes, pageIndex = 0) {
       return { cropX: 0, cropY: 0, cropW: pageView.width, cropH: pageView.height, pageW: pageView.width, pageH: pageView.height };
     }
 
-    const pad = 10;
-    const cropX = Math.max(0, minX - pad);
-    const cropY = Math.max(0, minY - pad);
-    const cropW = Math.min(pageView.width - cropX, (maxX - minX) + (pad * 2));
-    const cropH = Math.min(pageView.height - cropY, (maxY - minY) + (pad * 2));
+    const pad = 15;
+    let cropX = Math.max(0, minX - pad);
+    let cropY = Math.max(0, minY - pad);
+    let cropW = Math.min(pageView.width - cropX, (maxX - minX) + (pad * 2));
+    let cropH = Math.min(pageView.height - cropY, (maxY - minY) + (pad * 2));
+
+    // If text reaches near the top of the page (within 80pt), include all the way to top edge to preserve logos
+    if (pageView.height - maxY < 80) {
+      cropH = pageView.height - cropY;
+    }
+    // If text reaches near the left edge, include from x = 0
+    if (minX < 40) {
+      cropW += cropX;
+      cropX = 0;
+    }
 
     // If content already spans >85% of both dimensions, it's already a full label (no crop needed)
     const isFull = (cropW / pageView.width > 0.85) && (cropH / pageView.height > 0.85);
@@ -432,10 +442,12 @@ async function mergeLabelsToA4(inputPdfs, outputPath) {
         const srcPage = tempDoc.getPage(i);
         const { width: pW, height: pH } = srcPage.getSize();
 
-        // If page is already standard A6 (like our native manual text labels), do NOT crop to preserve outer box borders!
-        const isStandardA6 = Math.abs(pW - A6_WIDTH) < 2 && Math.abs(pH - A6_HEIGHT) < 2;
+        // Standalone thermal / sticker labels (100x100mm, 100x150mm, A6, bosCOD, J&T, etc.):
+        // Any page with dimensions <= 480 x 550 pt is ALREADY a compact label and must NOT be cropped!
+        // Cropping them risks slicing off logos (SiCepat, bosCOD, J&T), barcodes, or headers.
+        const isCompactThermalLabel = (pW <= 480 && pH <= 550) || (pW <= 550 && pH <= 480);
 
-        if (isStandardA6) {
+        if (isCompactThermalLabel) {
           const singleDoc = await PDFDocument.create();
           const [embedded] = await singleDoc.embedPdf(tempDoc, [i]);
           const singlePage = singleDoc.addPage([pW, pH]);
@@ -446,7 +458,7 @@ async function mergeLabelsToA4(inputPdfs, outputPath) {
             height: pH,
           });
         } else {
-          // External PDF (Shopee, bosCOD, etc.): Auto-crop white empty borders!
+          // Large multi-sheet pages (like Shopee A4 842x595 with empty margins): Auto-crop blank margins!
           const cropped = await cropPageToCleanDoc(pdfBytes, i);
           cleanLabels.push(cropped);
         }
