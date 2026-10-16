@@ -58,6 +58,13 @@ module.exports = {
   // Target printer name for direct monochrome printing
   PRINTER_NAME: process.env.PRINTER_NAME || 'EPSON L3250 Series',
 
+  // Google Sheet Webhook Integration
+  GOOGLE_SHEET_WEBHOOK_URL: process.env.GOOGLE_SHEET_WEBHOOK_URL || '',
+
+  // Default Sender Info
+  DEFAULT_SIP: process.env.DEFAULT_SIP || 'SAFRA',
+  DEFAULT_HP: process.env.DEFAULT_HP || '0856-9733-7041',
+
   // Directory paths
   PATHS: {
     ROOT: ROOT_DIR,
@@ -65,5 +72,6 @@ module.exports = {
     QUEUE: path.join(ROOT_DIR, 'storage', 'queue'),
     OUTPUT: path.join(ROOT_DIR, 'storage', 'output'),
     ARCHIVE: path.join(ROOT_DIR, 'storage', 'archive'),
+    PENDING_FINANCE: path.join(ROOT_DIR, 'storage', 'pending_finance.json'),
   }
 };

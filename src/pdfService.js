@@ -4,6 +4,7 @@ const path = require('path');
 const { PDFParse } = require('pdf-parse');
 const config = require('./config');
 const { generateBarcode } = require('./barcodeService');
+const { parsePrice } = require('./productCatalogService');
 
 // Dimensions in Points (72 points = 1 inch)
 // A4 = 210 x 297 mm
@@ -46,9 +47,13 @@ function parseShippingText(rawText) {
   let recipient = '';
   let address = '';
   let phone = '';
+  let toko = '';
   let sip = config.DEFAULT_SIP || 'SAFRA';
   let senderPhone = config.DEFAULT_HP || '0856-9733-7041';
   let keterangan = '';
+  let explicitNominal = 0;
+  let explicitMetode = '';
+  let explicitStatus = '';
 
   let readingAddress = false;
   let readingKeterangan = false;
@@ -85,7 +90,34 @@ function parseShippingText(rawText) {
       continue;
     }
 
-    const sipMatch = line.match(/^(?:sip|pengirim|toko)\s*[:=]?\s*(.+)$/i);
+    const nominalMatch = line.match(/^(?:nominal|harga|total|nilai)\s*[:=]?\s*(.+)$/i);
+    if (nominalMatch) {
+      explicitNominal = parsePrice(nominalMatch[1]);
+      readingAddress = false;
+      readingKeterangan = false;
+      continue;
+    }
+
+    const statusMatch = line.match(/^(?:status|status\s*bayar|metode|metode\s*bayar|bayar)\s*[:=]?\s*(.+)$/i);
+    if (statusMatch) {
+      const rawVal = statusMatch[1].trim();
+      explicitStatus = rawVal;
+      const mStr = rawVal.toUpperCase();
+      explicitMetode = mStr.includes('COD') ? 'COD' : (mStr.includes('TF') || mStr.includes('TRANSFER') || mStr.includes('LUNAS') ? 'TRANSFER' : rawVal);
+      readingAddress = false;
+      readingKeterangan = false;
+      continue;
+    }
+
+    const tokoMatch = line.match(/^(?:toko|store|shop)\s*[:=]?\s*(.+)$/i);
+    if (tokoMatch) {
+      toko = tokoMatch[1].trim();
+      readingAddress = false;
+      readingKeterangan = false;
+      continue;
+    }
+
+    const sipMatch = line.match(/^(?:sip|pengirim)\s*[:=]?\s*(.+)$/i);
     if (sipMatch) {
       sip = sipMatch[1].trim();
       readingAddress = false;
@@ -101,7 +133,7 @@ function parseShippingText(rawText) {
       continue;
     }
 
-    const ketMatch = line.match(/^(?:keterangan|ket|catatan|note|barang|produk|status)\s*[:=]?\s*(.*)$/i);
+    const ketMatch = line.match(/^(?:keterangan|ket|catatan|note|barang|produk)\s*[:=]?\s*(.*)$/i);
     if (ketMatch) {
       if (ketMatch[1].trim()) {
         keteranganAccumulator.push(ketMatch[1].trim());
@@ -133,13 +165,53 @@ function parseShippingText(rawText) {
   address = addressAccumulator.join(', ');
   keterangan = keteranganAccumulator.join('\n').trim();
 
+  // Smart financial extraction from combined text if not explicit
+  let finalNominal = explicitNominal;
+  let finalMethod = explicitMetode;
+  const combinedText = `${rawText}\n${keterangan}`;
+
+  if (!finalMethod) {
+    if (/\bcod\b/i.test(combinedText)) {
+      finalMethod = 'COD';
+    } else if (/\b(?:sudah\s*tf|transfer|lunas|tf)\b/i.test(combinedText)) {
+      finalMethod = 'TRANSFER';
+    } else {
+      finalMethod = 'NON-COD';
+    }
+  }
+
+  if (finalNominal === 0) {
+    const codAmountMatch = combinedText.match(/(?:cod|tf|transfer|lunas)\s*[:=]?\s*(?:rp\.?\s*)?([0-9\.\,]+(?:\s*(?:rb|k|ribu|jt|juta))?)/i) ||
+                           combinedText.match(/(?:rp\.?\s*)?([0-9\.\,]+(?:\s*(?:rb|k|ribu|jt|juta))?)\s*(?:[\(\[\{]?\s*(?:cod|tf|transfer|lunas)\s*[\)\]\}]?)/i);
+    if (codAmountMatch) {
+      const numStr = codAmountMatch[1].toLowerCase();
+      if (/(\d+(?:[\.,]\d+)?)\s*(?:jt|juta)/i.test(numStr)) {
+        const m = numStr.match(/(\d+(?:[\.,]\d+)?)\s*(?:jt|juta)/i);
+        finalNominal = Math.round(parseFloat(m[1].replace(',', '.')) * 1000000);
+      } else if (/(\d+(?:[\.,]\d+)?)\s*(?:rb|k|ribu)/i.test(numStr)) {
+        const m = numStr.match(/(\d+(?:[\.,]\d+)?)\s*(?:rb|k|ribu)/i);
+        finalNominal = Math.round(parseFloat(m[1].replace(',', '.')) * 1000);
+      } else {
+        const clean = numStr.replace(/[^0-9]/g, '');
+        finalNominal = parseInt(clean, 10) || 0;
+      }
+    }
+  }
+
+  const finalStatus = explicitStatus || 'TERKIRIM';
+
   return {
     recipient: recipient || '-',
     address: address || '-',
     phone: phone || '-',
+    toko: toko || '',
     sip: sip || config.DEFAULT_SIP || 'SAFRA',
     senderPhone: senderPhone || config.DEFAULT_HP || '0856-9733-7041',
     keterangan: keterangan || '',
+    nominal: finalNominal,
+    paymentMethod: finalMethod,
+    paymentStatus: finalStatus,
+    explicitStatus: explicitStatus || '',
     rawText,
   };
 }
@@ -244,14 +316,18 @@ async function createManualLabelFromPhotoFormat(data) {
     let statusLine = '';
 
     for (const rawLine of rawLines) {
-      if (/^(?:sudah\s*tf|tf|cod|lunas|bayar)/i.test(rawLine)) {
-        statusLine = rawLine;
-      } else {
-        const split = rawLine.split(',').map(s => s.trim()).filter(Boolean);
-        for (const s of split) {
-          const wrapped = wrapText(s, maxItemsW, fontRegular, itemFontSize);
-          allItemLines.push(...wrapped);
-        }
+      // Saring agar Toko, Harga, dan Status TIDAK PERNAH dicetak ke label PDF fisik
+      if (/^(?:toko|store|shop)\s*[:=]?/i.test(rawLine)) continue;
+      if (/^(?:harga|nominal|total|nilai)\s*[:=]?/i.test(rawLine)) continue;
+      if (/^(?:status|status\s*bayar|metode|metode\s*bayar|bayar)\s*[:=]?/i.test(rawLine)) continue;
+      if (/^(?:sudah\s*tf|tf|cod|lunas|transfer)$/i.test(rawLine.trim())) continue;
+
+      const split = rawLine.split(',').map(s => s.trim()).filter(Boolean);
+      for (const s of split) {
+        if (/^(?:toko|store|shop|harga|nominal|total|nilai|status|metode|bayar)\s*[:=]?/i.test(s)) continue;
+        if (/^(?:sudah\s*tf|tf|cod|lunas|transfer)$/i.test(s)) continue;
+        const wrapped = wrapText(s, maxItemsW, fontRegular, itemFontSize);
+        allItemLines.push(...wrapped);
       }
     }
 
@@ -272,11 +348,6 @@ async function createManualLabelFromPhotoFormat(data) {
         page.drawText(itemLine, { x: itemX, y: belowY, size: itemFontSize, font: fontRegular });
         belowY -= itemLineSpacing;
       }
-    }
-
-    if (statusLine && belowY > 15) {
-      belowY -= 2;
-      page.drawText(statusLine, { x: itemX, y: belowY, size: Math.max(10, itemFontSize + 1), font: fontBold });
     }
   }
 

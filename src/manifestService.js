@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { PDFParse } = require('pdf-parse');
+const { parsePrice } = require('./productCatalogService');
 
 /**
  * Clean whitespace without truncating strings
@@ -28,15 +29,40 @@ async function extractLabelDetails(filePath, metaItem = {}) {
       qty = parseInt(qMatch[1], 10);
       rawProduct = qMatch[2] || qMatch[0];
     }
-    sku = rawProduct.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 12) || 'MANUAL';
+    sku = '-';
 
     return {
       recipient,
+      phone: metaItem.phone || '-',
       product: rawProduct || 'Produk',
-      sku,
+      sku: '-',
       qty,
       resi: 'MANUAL',
       type: 'manual',
+      toko: metaItem.toko || '',
+      expedition: 'Manual (Kurir)',
+      nominal: metaItem.nominal || 0,
+      paymentMethod: metaItem.paymentMethod || 'NON-COD',
+      paymentStatus: metaItem.status || metaItem.paymentStatus || 'TERKIRIM',
+      fileName: path.basename(filePath),
+    };
+  }
+
+  // If it's a photo and already has details extracted from OCR in metadata
+  if (metaItem.type === 'photo') {
+    return {
+      recipient: metaItem.recipient && metaItem.recipient !== '-' ? metaItem.recipient : (metaItem.title || 'Penerima'),
+      phone: metaItem.phone || '-',
+      product: metaItem.product && metaItem.product !== '-' ? metaItem.product : 'Produk',
+      sku: metaItem.sku || '-',
+      qty: metaItem.qty || 1,
+      resi: metaItem.resi || '-',
+      type: 'photo',
+      toko: metaItem.toko || '',
+      expedition: metaItem.expedition || 'Ekspedisi (Foto)',
+      nominal: metaItem.nominal || 0,
+      paymentMethod: metaItem.paymentMethod || 'NON-COD',
+      paymentStatus: metaItem.status || metaItem.paymentStatus || 'TERKIRIM',
       fileName: path.basename(filePath),
     };
   }
@@ -45,11 +71,16 @@ async function extractLabelDetails(filePath, metaItem = {}) {
     if (!fs.existsSync(filePath)) {
       return {
         recipient: metaItem.recipient || metaItem.title || '-',
+        phone: metaItem.phone || '-',
         product: metaItem.title || '-',
         sku: '-',
         qty: 1,
         resi: '-',
         type: 'file',
+        expedition: 'Ekspedisi',
+        nominal: metaItem.nominal || 0,
+        paymentMethod: metaItem.paymentMethod || 'NON-COD',
+        paymentStatus: metaItem.paymentStatus || 'NON-COD',
         fileName: path.basename(filePath),
       };
     }
@@ -86,9 +117,23 @@ async function extractLabelDetails(filePath, metaItem = {}) {
           pText = qMatch[2] || qMatch[0];
         }
         product = pText;
-        sku = pText.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 12);
+        sku = '-';
       }
-      return { recipient, product, sku, qty, resi: 'MANUAL', type: 'manual', fileName: path.basename(filePath) };
+      return {
+        recipient,
+        phone: metaItem.phone || '-',
+        product,
+        sku: '-',
+        qty,
+        resi: 'MANUAL',
+        type: 'manual',
+        toko: metaItem.toko || '',
+        expedition: 'Manual (Kurir)',
+        nominal: metaItem.nominal || 0,
+        paymentMethod: metaItem.paymentMethod || 'NON-COD',
+        paymentStatus: metaItem.status || metaItem.paymentStatus || 'TERKIRIM',
+        fileName: path.basename(filePath)
+      };
     }
 
     // 2. Shopee format
@@ -99,6 +144,8 @@ async function extractLabelDetails(filePath, metaItem = {}) {
       // Recipient in Shopee: anchor to seller phone number and filtered recipient candidates
       const cleanItems = items.filter(s => s && !s.startsWith('SPXID') && s !== '#');
       const phoneIdx = cleanItems.findIndex(s => /^(?:628|08)\d{8,13}$/.test(s.trim()));
+      let shopeePhone = phoneIdx !== -1 ? cleanItems[phoneIdx].trim() : '-';
+
       if (phoneIdx !== -1) {
         const isCandidate = (str) => {
           if (!str) return false;
@@ -159,7 +206,30 @@ async function extractLabelDetails(filePath, metaItem = {}) {
         qty = pQty;
       }
 
-      return { recipient, product, sku, qty, resi, type: 'shopee', fileName: path.basename(filePath) };
+      // Check COD in Shopee
+      let shopeeNominal = 0;
+      let isShopeeCod = /COD/i.test(fullText) && !/Non-COD/i.test(fullText);
+      const shopeeCodMatch = fullText.match(/COD\s*[:=]?\s*(?:Rp\.?\s*)?([0-9\.\,]+)/i);
+      if (shopeeCodMatch) {
+        shopeeNominal = parsePrice(shopeeCodMatch[1]);
+        if (shopeeNominal > 0) isShopeeCod = true;
+      }
+
+      return {
+        recipient,
+        phone: shopeePhone,
+        product,
+        sku,
+        qty,
+        resi,
+        type: 'shopee',
+        toko: metaItem.toko || '',
+        expedition: 'Shopee (SPX)',
+        nominal: (metaItem.nominal && metaItem.nominal > 0) ? metaItem.nominal : shopeeNominal,
+        paymentMethod: isShopeeCod ? 'COD' : 'NON-COD',
+        paymentStatus: 'TERKIRIM',
+        fileName: path.basename(filePath)
+      };
     }
 
     // 3. J&T Cargo / bosCOD format
@@ -186,26 +256,129 @@ async function extractLabelDetails(filePath, metaItem = {}) {
       const orderIdMatch = fullText.match(/Order ID:\s*([A-Z0-9]+)/i);
       if (orderIdMatch) sku = orderIdMatch[1];
 
-      return { recipient, product, sku, qty, resi, type: 'jnt', fileName: path.basename(filePath) };
+      let jntNominal = 0;
+      let isJntCod = /COD/i.test(fullText) && !/NON-COD/i.test(fullText);
+      const jntCodMatch = fullText.match(/(?:COD\s*[:=]?\s*|Nilai\s*COD\s*[:=]?\s*)(?:Rp\.?\s*)?([0-9\.\,]+)/i);
+      if (jntCodMatch) {
+        jntNominal = parsePrice(jntCodMatch[1]);
+        if (jntNominal > 0) isJntCod = true;
+      }
+
+      let jntPhone = '-';
+      const jPhoneIdx = items.findIndex(s => /^(?:628|08)\d{8,13}$/.test(s.trim()));
+      if (jPhoneIdx !== -1) jntPhone = items[jPhoneIdx].trim();
+
+      return {
+        recipient,
+        phone: jntPhone,
+        product,
+        sku,
+        qty,
+        resi,
+        type: 'jnt',
+        toko: metaItem.toko || '',
+        expedition: 'J&T Cargo (bosCOD)',
+        nominal: (metaItem.nominal && metaItem.nominal > 0) ? metaItem.nominal : jntNominal,
+        paymentMethod: isJntCod ? 'COD' : 'NON-COD',
+        paymentStatus: 'TERKIRIM',
+        fileName: path.basename(filePath)
+      };
+    }
+
+    // 4. J&T Express / TikTok Shop format (e.g. resi starts with JY, contains jet.co.id or Order Id)
+    const joinedText = items.join('');
+    if (fullText.includes('jet.co.id') || /JY\d{8,15}/i.test(fullText) || /JY\d{8,15}/i.test(joinedText) || /Order\s*Id\s*:/i.test(joinedText)) {
+      let jyResi = '-';
+      const resiMatch = (fullText + ' ' + joinedText).match(/(JY\d{8,15})/i);
+      if (resiMatch) jyResi = resiMatch[1];
+
+      let sender = '';
+      const senderMatch = joinedText.match(/ng\s*i\s*r\s*i\s*m\s*:\s*([A-Za-z0-9\s]+?)(?:Pe\s*ne|Order|Weight|Ship|0\.\d|\n|$)/i);
+      if (senderMatch) {
+        sender = senderMatch[1].replace(/\s+/g, ' ').replace(/S\s*tore/i, 'Store').trim();
+      }
+
+      let recName = recipient !== '-' ? recipient : '-';
+      const sPhoneIdx = items.findIndex(s => s.includes('(+62)') && s.includes('813'));
+      if (sPhoneIdx !== -1) {
+        const nextTokens = [];
+        for (let k = sPhoneIdx + 1; k < items.length && k < sPhoneIdx + 6; k++) {
+          if (items[k].includes('Perdamean') || items[k].includes('Jalan') || items[k].includes('Kec.') || items[k].includes('Kab.')) break;
+          nextTokens.push(items[k]);
+        }
+        if (nextTokens.length > 0) recName = nextTokens.join('').trim();
+      }
+
+      let phone = '-';
+      const phoneMatch = (fullText + ' ' + joinedText).match(/\(\+62\)\s*(82[0-9\*]{7,12})/i);
+      if (phoneMatch) {
+        phone = '0' + phoneMatch[1].replace(/[^0-9\*]/g, '');
+      }
+
+      let weightStr = '';
+      const weightMatch = (fullText + ' ' + joinedText).match(/(\d+(?:\.\d+)?)\s*KG/i);
+      if (weightMatch) weightStr = weightMatch[0];
+
+      let qty = 1;
+      const qtyMatch = joinedText.match(/J\s*u\s*m\s*l\s*a\s*h\s*:\s*(\d+)/i);
+      if (qtyMatch) qty = parseInt(qtyMatch[1], 10);
+
+      const baseName = path.basename(filePath).replace(/\.pdf$/i, '').replace(/^\d+_/, '').replace(/_/g, ' ');
+      const rawProduct = (baseName && !baseName.toLowerCase().includes('default')) ? baseName : (metaItem.title || 'Produk');
+      const productWithWeight = rawProduct + (weightStr ? ` (${weightStr})` : '');
+
+      let orderId = '-';
+      const orderIdMatch = (fullText + ' ' + joinedText).match(/([0-9]{16,22})/);
+      if (orderIdMatch) orderId = orderIdMatch[1];
+
+      const isCod = /COD/i.test(fullText) && !/NON-COD/i.test(fullText);
+
+      return {
+        recipient: recName !== '-' ? recName : (metaItem.recipient || 'Customer TikTok'),
+        phone,
+        product: productWithWeight,
+        sku: orderId !== '-' ? orderId : '-',
+        qty,
+        resi: jyResi !== '-' ? jyResi : '-',
+        type: 'jnt_express',
+        toko: sender || metaItem.toko || 'Alwiwin Store',
+        expedition: 'J&T Express (TikTok Shop)',
+        nominal: (metaItem.nominal && metaItem.nominal > 0) ? metaItem.nominal : 0,
+        paymentMethod: isCod ? 'COD' : 'NON-COD',
+        paymentStatus: 'TERKIRIM',
+        fileName: path.basename(filePath)
+      };
     }
 
     return {
-      recipient: recipient !== '-' ? recipient : (metaItem.title || path.basename(filePath)),
+      recipient: recipient !== '-' ? recipient : (metaItem.recipient || metaItem.title || path.basename(filePath)),
+      phone: metaItem.phone || '-',
       product: product !== '-' ? product : 'Paket',
       sku: '-',
       qty: 1,
       resi: resi !== '-' ? resi : '-',
       type: 'pdf',
+      toko: metaItem.toko || '',
+      expedition: 'Ekspedisi',
+      nominal: (metaItem.nominal && metaItem.nominal > 0) ? metaItem.nominal : 0,
+      paymentMethod: metaItem.paymentMethod || 'NON-COD',
+      paymentStatus: metaItem.paymentStatus || 'TERKIRIM',
       fileName: path.basename(filePath),
     };
   } catch (err) {
     return {
       recipient: metaItem.recipient || metaItem.title || path.basename(filePath),
+      phone: metaItem.phone || '-',
       product: metaItem.keterangan || metaItem.title || '-',
       sku: '-',
       qty: 1,
       resi: '-',
       type: 'error',
+      toko: metaItem.toko || '',
+      expedition: 'Manual',
+      nominal: metaItem.nominal || 0,
+      paymentMethod: metaItem.paymentMethod || 'NON-COD',
+      paymentStatus: metaItem.paymentStatus || 'NON-COD',
       fileName: path.basename(filePath),
     };
   }
@@ -228,33 +401,30 @@ async function getManifestForQueue(queueItems) {
  */
 function formatListMessage(manifestList) {
   if (!manifestList || manifestList.length === 0) {
-    return `📭 <b>Antrean Masih Kosong</b>\nBelum ada resi yang menunggu cetak saat ini. Silakan kirim file PDF atau ketik /manual.`;
+    return `📭 <b>Antrean Kosong</b>\nBelum ada resi yang menunggu cetak.`;
   }
 
   const pagesEstimate = Math.ceil(manifestList.length / 4);
   let totalQty = 0;
 
-  let msg = `📋 <b>DAFTAR RESI DALAM ANTREAN (${manifestList.length} Paket):</b>\n`;
-  msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  let msg = `📋 <b>Antrean Resi (${manifestList.length} Paket):</b>\n`;
 
   manifestList.forEach((it, index) => {
     const num = index + 1;
     const d = it.details || {};
     const rec = d.recipient && d.recipient !== '-' ? d.recipient : (it.recipient || it.title || 'Penerima');
-    const prod = cleanTitle(d.product && d.product !== '-' ? d.product : (it.keterangan || it.title || 'Barang'));
-    const sku = d.sku && d.sku !== '-' ? d.sku : '-';
+    let prod = cleanTitle(d.product && d.product !== '-' ? d.product : (it.keterangan || it.title || 'Barang'));
+    if (prod.length > 25) prod = prod.slice(0, 25) + '...';
     const qty = d.qty || 1;
     totalQty += qty;
+    const priceVal = (it.nominal && it.nominal > 0) ? it.nominal : (d.nominal || 0);
+    const priceStr = priceVal > 0 ? ` • Rp ${priceVal.toLocaleString('id-ID')}` : '';
 
-    msg += `<b>${num}. 👤 ${rec}</b>\n`;
-    msg += `   📦 <b>Barang:</b> ${prod}\n`;
-    msg += `   🏷️ <b>SKU:</b> <code>${sku}</code> | <b>Qty:</b> ${qty} pcs\n\n`;
+    msg += `${num}. <b>${rec}</b> — ${prod} (${qty} pcs)${priceStr}\n`;
   });
 
-  msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-  msg += `📊 <b>Total Paket:</b> ${manifestList.length} | <b>Total Barang:</b> ${totalQty} pcs\n`;
-  msg += `📄 <b>Kertas A4:</b> ${pagesEstimate} lembar (Grid 2x2)\n\n`;
-  msg += `👉 <i>Ketik /cetak untuk satukan ke PDF A4, atau /print untuk langsung cetak ke printer.</i>`;
+  msg += `\n📦 Total: <b>${manifestList.length}</b> paket (<b>${totalQty}</b> pcs) • 📄 <b>${pagesEstimate}</b> lembar A4\n` +
+         `👉 Ketik <b>/cetak</b> untuk proses.`;
 
   return msg;
 }
@@ -266,27 +436,21 @@ function formatPackingSummary(manifestList, batchName = '') {
   if (!manifestList || manifestList.length === 0) return '';
 
   let totalQty = 0;
-  let summary = `📦 <b>REKAP PACKING BARANG (${batchName || 'Batch Baru'})</b>\n`;
-  summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  let summary = `📦 <b>Rekap Packing (${batchName || 'Batch Baru'}):</b>\n`;
 
   manifestList.forEach((it, index) => {
     const num = index + 1;
     const d = it.details || {};
     const rec = d.recipient && d.recipient !== '-' ? d.recipient : (it.recipient || it.title || 'Penerima');
-    const prod = cleanTitle(d.product && d.product !== '-' ? d.product : (it.keterangan || it.title || 'Barang'));
-    const sku = d.sku && d.sku !== '-' ? d.sku : '-';
+    let prod = cleanTitle(d.product && d.product !== '-' ? d.product : (it.keterangan || it.title || 'Barang'));
+    if (prod.length > 28) prod = prod.slice(0, 28) + '...';
     const qty = d.qty || 1;
     totalQty += qty;
 
-    summary += `${num}. 👤 <b>${rec}</b>\n`;
-    summary += `   📦 <b>Barang:</b> ${prod}\n`;
-    summary += `   🏷️ SKU: <code>${sku}</code> | <b>Qty:</b> ${qty} pcs\n\n`;
+    summary += `${num}. <b>${rec}</b> — ${prod} (<b>${qty} pcs</b>)\n`;
   });
 
-  summary += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-  summary += `📊 <b>Total Paket Fisik:</b> ${manifestList.length} paket\n`;
-  summary += `📦 <b>Total Jumlah Barang:</b> ${totalQty} pcs\n`;
-  summary += `<i>Cocokkan jumlah kardus/barang di atas sebelum di-pickup kurir!</i>`;
+  summary += `\n📊 Total: <b>${manifestList.length}</b> paket (<b>${totalQty} pcs</b>)`;
 
   return summary;
 }

@@ -8,6 +8,17 @@ const { getManifestForQueue, formatListMessage, formatPackingSummary } = require
 const { printPdfMonochrome, getAvailablePrinters } = require('./src/printerService');
 const { initScheduler } = require('./src/cronService');
 const { authMiddleware, adminOnly } = require('./src/authMiddleware');
+const financeService = require('./src/financeService');
+const productCatalogService = require('./src/productCatalogService');
+const ocrService = require('./src/ocrService');
+
+// Global Process Error Handlers to keep Node process resilient
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[UNHANDLED REJECTION]', reason && reason.message ? reason.message : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT EXCEPTION]', err && err.message ? err.message : err);
+});
 
 if (!config.BOT_TOKEN) {
   console.log(`
@@ -84,6 +95,7 @@ const COMMANDS_LIST = [
   { command: 'status', description: '📊 Cek jumlah total resi menunggu' },
   { command: 'ulang', description: '🔄 Kirim ulang file cetak PDF terakhir' },
   { command: 'manual', description: '📝 Ambil contoh format resi manual' },
+  { command: 'harga', description: '💰 Tandai harga resi (reply file + nominal)' },
   { command: 'batal', description: '🗑️ Batalkan resi (reply chat dengan kata "batal")' },
 ];
 
@@ -167,12 +179,8 @@ async function processBatchAndSend(chatId, triggeredBy = 'manual', directPrint =
         chatId,
         { source: outputPath, filename: outputFileName },
         {
-          caption: `✅ <b>PENGGABUNGAN RESI SELESAI!</b>\n\n` +
-                   `📦 <b>Total Resi:</b> ${mergeResult.totalLabels} resi\n` +
-                   `📄 <b>Jumlah Halaman A4:</b> ${mergeResult.totalPages} lembar\n` +
-                   `✂️ <b>Format:</b> Grid 2x2 (4 resi per lembar A4)\n` +
-                   `⏰ <b>Waktu:</b> ${now.toLocaleTimeString('id-ID')} WIB\n\n` +
-                   `<i>File PDF tersimpan di arsip per tanggal. Rekap manifest barang dikirim di bawah.</i>`,
+          caption: `✅ <b>PDF Siap Cetak:</b> ${mergeResult.totalLabels} resi (${mergeResult.totalPages} lembar A4)\n` +
+                   `⏰ ${now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB`,
           parse_mode: 'HTML',
         }
       );
@@ -197,6 +205,17 @@ async function processBatchAndSend(chatId, triggeredBy = 'manual', directPrint =
     if (chatId && manifestText) {
       console.log(`[BATCH MANIFEST] Mengirim rekap packing barang...`);
       await bot.telegram.sendMessage(chatId, manifestText, { parse_mode: 'HTML' }).catch(() => {});
+    }
+
+    // Automatic Silent Financial Recording to Google Sheets (Background)
+    try {
+      console.log(`[BATCH FINANCE] Memproses pencatatan keuangan batch ke Google Sheets secara silent di background...`);
+      const activeItems = currentItems.filter(it => !deletedItems.includes(it));
+      const manifestList = await getManifestForQueue(activeItems);
+      await financeService.recordBatchTransactions(manifestList, batchId);
+      console.log(`[BATCH FINANCE] Pencatatan keuangan batch ${batchId} ke Google Sheets selesai.`);
+    } catch (fErr) {
+      console.error('[FINANCE ERROR] Gagal memproses laporan keuangan:', fErr.message);
     }
 
     // Direct Silent Printing to Physical Printer in Monochrome (Hitam Putih)
@@ -245,19 +264,15 @@ async function processBatchAndSend(chatId, triggeredBy = 'manual', directPrint =
 function sendManualTemplate(ctx) {
   updateActiveChat(ctx.chat.id);
   const templateMsg =
-    `📋 <b>FORMAT INPUT RESI MANUAL:</b>\n\n` +
-    `<i>Salin format di bawah ini, isi data pembeli, lalu kirim ke chat ini:</i>\n\n` +
-    `<pre>/manual\nNama: \nAlamat: \nNo HP: \nKeterangan: </pre>\n\n` +
-    `💡 <b>Catatan Pengisian:</b>\n` +
-    `• Awali chat selalu dengan <b>/manual</b>\n` +
-    `• <b>Keterangan</b> : Boleh diisi (misal pesanan, barang, COD) atau biarkan KOSONG jika tidak ada.\n` +
-    `• Pengirim otomatis: <b>${escapeHtml(config.DEFAULT_SIP || 'SAFRA')}</b> (${escapeHtml(config.DEFAULT_HP || '0856-9733-7041')})`;
+    `📋 <b>Format Resi Manual:</b>\n\n` +
+    `<pre>/manual\nNama: \nAlamat: \nNo HP: \nToko: \nHarga: \nKeterangan: </pre>\n\n` +
+    `💡 <i>Toko & Harga otomatis masuk ke pembukuan (tidak dicetak ke label kertas fisik).</i>`;
 
   ctx.reply(templateMsg, {
     parse_mode: 'HTML',
     reply_markup: {
       inline_keyboard: [
-        [{ text: '📋 Klik Untuk Salin Format /manual', copy_text: { text: '/manual\nNama: \nAlamat: \nNo HP: \nKeterangan: ' } }]
+        [{ text: '📋 Klik Untuk Salin Format /manual', copy_text: { text: '/manual\nNama: \nAlamat: \nNo HP: \nToko: \nHarga: \nStatus: \nKeterangan: ' } }]
       ]
     }
   }).catch(() => {});
@@ -288,12 +303,10 @@ function sendStatus(ctx) {
   const count = queueService.getQueueCount();
   const pagesEstimate = Math.ceil(count / 4);
   const text =
-    `📊 <b>Status Antrean Resi Belum Cetak:</b>\n\n` +
-    `• Total Resi Menunggu: <b>${count}</b> resi\n` +
-    `• Estimasi Kertas A4: <b>${pagesEstimate}</b> lembar (4 resi/lembar)\n\n` +
+    `📊 <b>Antrean Belum Cetak:</b> <b>${count}</b> resi (${pagesEstimate} lembar A4)\n` +
     (count > 0
-      ? `👉 Ketik <b>/cetak</b> untuk proses PDF A4, atau <b>/list</b> untuk melihat rincian nama.`
-      : `<i>Belum ada resi. Silakan kirim PDF resi atau ketik /manual.</i>`);
+      ? `👉 Ketik <b>/cetak</b> untuk proses, atau <b>/list</b> untuk cek rincian.`
+      : `<i>Belum ada resi yang menunggu.</i>`);
 
   ctx.reply(text, { parse_mode: 'HTML' }).catch(() => {});
 }
@@ -535,6 +548,8 @@ async function handleManualInput(ctx) {
         `✏️ <b>Data Resi Berhasil Diperbarui! (Revisi Alamat)</b>\n` +
         `👤 <b>Penerima:</b> ${escapeHtml(res.parsed.recipient)}\n` +
         `📞 <b>No HP:</b> ${escapeHtml(res.parsed.phone)}\n` +
+        (res.parsed.toko ? `🏪 <b>Toko:</b> ${escapeHtml(res.parsed.toko)}\n` : '') +
+        (res.parsed.nominal > 0 ? `💰 <b>Harga:</b> Rp ${res.parsed.nominal.toLocaleString('id-ID')}\n` : '') +
         (res.parsed.keterangan ? `📝 <b>Keterangan:</b> ${escapeHtml(res.parsed.keterangan)}\n` : '') +
         `📦 Total antrean: <b>${res.totalInQueue}</b> resi (data lama telah digantikan).`,
         { parse_mode: 'HTML', reply_to_message_id: ctx.message.message_id }
@@ -555,13 +570,18 @@ async function handleManualInput(ctx) {
     }
 
     // Normal Success
+    const infoParts = [];
+    if (res.parsed.toko) infoParts.push(`🏪 ${escapeHtml(res.parsed.toko)}`);
+    if (res.parsed.nominal > 0) infoParts.push(`💰 <b>${financeService.formatRupiah(res.parsed.nominal)}</b>`);
+    if (res.parsed.keterangan) {
+      const ketShort = res.parsed.keterangan.length > 25 ? res.parsed.keterangan.slice(0, 25) + '...' : res.parsed.keterangan;
+      infoParts.push(escapeHtml(ketShort));
+    }
+
     const replyMsg =
-      `✅ <b>Resi Manual Diterima!</b>\n` +
-      `👤 <b>Nama:</b> ${escapeHtml(res.parsed.recipient)}\n` +
-      `📞 <b>No HP:</b> ${escapeHtml(res.parsed.phone)}\n` +
-      (res.parsed.keterangan ? `📝 <b>Keterangan:</b> ${escapeHtml(res.parsed.keterangan)}\n` : '') +
-      `📦 Antrean belum cetak: <b>${res.totalInQueue}</b> resi\n` +
-      `<i>Ketik /cetak untuk proses atau /list untuk melihat daftar.</i>`;
+      `✅ <b>Manual Diterima:</b> <b>${escapeHtml(res.parsed.recipient)}</b>${res.parsed.phone && res.parsed.phone !== '-' ? ` (${escapeHtml(res.parsed.phone)})` : ''}\n` +
+      (infoParts.length > 0 ? infoParts.join(' • ') + '\n' : '') +
+      `📦 Antrean: <b>${res.totalInQueue}</b> resi`;
 
     return await ctx.reply(replyMsg, {
       parse_mode: 'HTML',
@@ -603,12 +623,19 @@ bot.on('document', async (ctx) => {
     const buffer = Buffer.from(arrayBuffer);
     const senderName = ctx.from ? (ctx.from.username ? `@${ctx.from.username}` : ctx.from.first_name) : 'Staff';
 
+    const caption = (ctx.message && ctx.message.caption) ? ctx.message.caption.trim() : '';
+    const explicitPrice = caption ? productCatalogService.extractPriceFromText(caption) : 0;
+    const explicitStore = caption ? productCatalogService.extractStoreFromText(caption) : '';
+
     const res = await queueService.addPdfToQueue({
       filename: fileName,
       buffer: buffer,
       messageId: ctx.message.message_id,
       chatId: ctx.chat.id,
       senderName: senderName,
+      nominal: explicitPrice,
+      toko: explicitStore,
+      caption: caption,
     });
 
     if (res.isDuplicate) {
@@ -623,13 +650,20 @@ bot.on('document', async (ctx) => {
       ).catch(() => {});
     }
 
-    ctx.reply(
-      `📥 <b>PDF Resi Diterima!</b>\n` +
-      `📄 <code>${escapeHtml(fileName)}</code>\n` +
-      `📦 Antrean belum cetak: <b>${res.totalInQueue}</b> resi\n` +
-      `<i>Ketik /cetak untuk satukan ke PDF A4.</i>`,
+    let metaNotice = '';
+    if (explicitPrice > 0) {
+      metaNotice = `💰 <b>${financeService.formatRupiah(explicitPrice)}</b>${explicitStore ? ` (${escapeHtml(explicitStore)})` : ''} • `;
+    }
+
+    const replyMsg = await ctx.reply(
+      `📥 <b>PDF Diterima:</b> <code>${escapeHtml(fileName)}</code>\n` +
+      `${metaNotice}📦 Antrean: <b>${res.totalInQueue}</b> resi`,
       { parse_mode: 'HTML', reply_to_message_id: ctx.message.message_id }
     ).catch(() => {});
+
+    if (replyMsg && replyMsg.message_id) {
+      queueService.setBotReplyMessageId(ctx.message.message_id, replyMsg.message_id);
+    }
   } catch (err) {
     console.error('Gagal mengunduh dokumen:', err);
     ctx.reply(`❌ Gagal menyimpan file resi: ${escapeHtml(err.message)}`, {
@@ -657,12 +691,44 @@ bot.on('photo', async (ctx) => {
     const buffer = Buffer.from(arrayBuffer);
     const senderName = ctx.from ? (ctx.from.username ? `@${ctx.from.username}` : ctx.from.first_name) : 'Staff';
 
+    const caption = (ctx.message && ctx.message.caption) ? ctx.message.caption.trim() : '';
+    const explicitPrice = caption ? productCatalogService.extractPriceFromText(caption) : 0;
+    const explicitStore = caption ? productCatalogService.extractStoreFromText(caption) : '';
+
+    // Run OCR detection on the photo
+    let ocrText = '';
+    let parsed = {};
+    try {
+      ocrText = await ocrService.recognizeReceiptImage(buffer);
+      parsed = ocrService.parseReceiptOcrText(ocrText, {
+        caption,
+        explicitPrice,
+        explicitStore,
+        fileName: `foto_${Date.now()}`
+      });
+    } catch (ocrErr) {
+      console.error('[OCR PHOTO ERROR]:', ocrErr.message);
+    }
+
     const res = await queueService.addImageToQueue({
-      filename: `screenshot_${Date.now()}`,
+      filename: `foto_${(parsed && parsed.resi && parsed.resi !== '-') ? parsed.resi : Date.now()}`,
       buffer: buffer,
       messageId: ctx.message.message_id,
       chatId: ctx.chat.id,
       senderName: senderName,
+      recipient: parsed.recipient || '-',
+      phone: parsed.phone || '-',
+      product: parsed.product || '-',
+      sku: parsed.sku || '-',
+      qty: parsed.qty || 1,
+      resi: parsed.resi || '-',
+      expedition: parsed.expedition || 'Ekspedisi (Foto)',
+      nominal: (parsed.nominal && parsed.nominal > 0) ? parsed.nominal : explicitPrice,
+      toko: parsed.toko || explicitStore,
+      caption: caption,
+      ocrText: ocrText,
+      paymentMethod: parsed.paymentMethod || 'NON-COD',
+      paymentStatus: 'TERKIRIM',
     });
 
     if (res.isDuplicate) {
@@ -676,12 +742,40 @@ bot.on('photo', async (ctx) => {
       ).catch(() => {});
     }
 
-    ctx.reply(
-      `📸 <b>Gambar Resi Diterima!</b>\n` +
-      `📦 Antrean belum cetak: <b>${res.totalInQueue}</b> resi\n` +
-      `<i>Ketik /cetak jika ingin proses langsung.</i>`,
+    const finalPriceVal = (parsed.nominal && parsed.nominal > 0) ? parsed.nominal : explicitPrice;
+    const line1 = [];
+    if (parsed.recipient && parsed.recipient !== '-' && parsed.recipient !== 'Penerima') {
+      line1.push(`👤 <b>${escapeHtml(parsed.recipient)}</b>`);
+    }
+    if (parsed.resi && parsed.resi !== '-') {
+      line1.push(`<code>${escapeHtml(parsed.resi)}</code>`);
+    }
+    if (parsed.toko) {
+      line1.push(`🏪 <b>${escapeHtml(parsed.toko)}</b>`);
+    }
+
+    const line2 = [];
+    if (parsed.product && parsed.product !== '-' && parsed.product !== 'Paket') {
+      const prodShort = parsed.product.length > 28 ? parsed.product.slice(0, 28) + '...' : parsed.product;
+      line2.push(escapeHtml(prodShort));
+    }
+    if (finalPriceVal > 0) {
+      line2.push(`💰 <b>${financeService.formatRupiah(finalPriceVal)}</b>`);
+    }
+
+    let photoReplyText = `📸 <b>Foto Diterima</b>\n`;
+    if (line1.length > 0) photoReplyText += line1.join(' • ') + '\n';
+    if (line2.length > 0) photoReplyText += line2.join(' • ') + '\n';
+    photoReplyText += `📦 Antrean: <b>${res.totalInQueue}</b> resi`;
+
+    const replyMsg = await ctx.reply(
+      photoReplyText,
       { parse_mode: 'HTML', reply_to_message_id: ctx.message.message_id }
     ).catch(() => {});
+
+    if (replyMsg && replyMsg.message_id) {
+      queueService.setBotReplyMessageId(ctx.message.message_id, replyMsg.message_id);
+    }
   } catch (err) {
     console.error('Gagal mengunduh foto resi:', err);
     ctx.reply(`❌ Gagal memproses gambar resi: ${escapeHtml(err.message)}`, {
@@ -690,7 +784,7 @@ bot.on('photo', async (ctx) => {
   }
 });
 
-// Handle general text messages (catches multi-line /manual, or reply with "batal" / "cancel")
+// Handle general text messages (catches multi-line /manual, reply with "batal", or reply with price)
 bot.on('text', async (ctx, next) => {
   const text = ctx.message.text.trim();
   const lower = text.toLowerCase();
@@ -706,8 +800,69 @@ bot.on('text', async (ctx, next) => {
     return handleManualInput(ctx);
   }
 
+  // 3. Check if user replies to a PDF resi with price (e.g. "39000", "rp 39.000", "39rb", "harga 39000")
+  if (ctx.message.reply_to_message) {
+    const replyTargetMsgId = ctx.message.reply_to_message.message_id;
+    const cleanText = text.replace(/^\/(?:harga|nominal|setharga)(?:@\w+)?\s*/i, '').trim();
+    const priceFromText = productCatalogService.extractPriceFromText(cleanText || text);
+
+    if (priceFromText > 0) {
+      const storeFromText = productCatalogService.extractStoreFromText(cleanText || text);
+      const updated = queueService.updateQueueItemPrice(replyTargetMsgId, priceFromText, storeFromText);
+
+      if (updated) {
+        const itemLabel = updated.title || updated.fileName || 'Resi';
+        return ctx.reply(
+          `💰 <b>Harga Diset:</b> <b>${financeService.formatRupiah(priceFromText)}</b>${storeFromText ? ` (${escapeHtml(storeFromText)})` : ''}\n` +
+          `📄 <code>${escapeHtml(itemLabel)}</code>`,
+          { parse_mode: 'HTML', reply_to_message_id: ctx.message.message_id }
+        ).catch(() => {});
+      }
+    }
+  }
+
   // All other normal text chats in group are completely ignored so members can chat freely!
   return next();
+});
+
+// Explicit command: /harga [nominal] (reply to PDF)
+bot.command(['harga', 'setharga', 'nominal'], async (ctx) => {
+  updateActiveChat(ctx.chat.id);
+  const text = ctx.message.text.trim();
+  const rawArg = text.replace(/^\/(?:harga|setharga|nominal)(?:@\w+)?\s*/i, '').trim();
+
+  if (!ctx.message.reply_to_message) {
+    return ctx.reply(
+      `💡 <b>Cara Menandai Harga Resi:</b>\n` +
+      `Balas (reply) file PDF resi yang dimaksud, lalu ketik nominal harganya (contoh: <code>39000</code>, <code>Rp 39.000</code>, atau <code>39rb</code>).`,
+      { parse_mode: 'HTML' }
+    ).catch(() => {});
+  }
+
+  const replyTargetMsgId = ctx.message.reply_to_message.message_id;
+  const priceFromText = productCatalogService.extractPriceFromText(rawArg);
+  if (priceFromText <= 0) {
+    return ctx.reply(
+      `⚠️ Nominal harga tidak valid. Contoh: balas pesan PDF dengan <code>39000</code> atau <code>/harga 39.000</code>.`,
+      { parse_mode: 'HTML', reply_to_message_id: ctx.message.message_id }
+    ).catch(() => {});
+  }
+
+  const storeFromText = productCatalogService.extractStoreFromText(rawArg);
+  const updated = queueService.updateQueueItemPrice(replyTargetMsgId, priceFromText, storeFromText);
+  if (!updated) {
+    return ctx.reply(
+      `⚠️ Resi tersebut tidak ditemukan di antrean aktif saat ini (mungkin sudah dicetak atau dibatalkan).`,
+      { parse_mode: 'HTML', reply_to_message_id: ctx.message.message_id }
+    ).catch(() => {});
+  }
+
+  const itemLabel = updated.title || updated.fileName || 'Resi';
+  return ctx.reply(
+    `💰 <b>Harga Diset:</b> <b>${financeService.formatRupiah(priceFromText)}</b>${storeFromText ? ` (${escapeHtml(storeFromText)})` : ''}\n` +
+    `📄 <code>${escapeHtml(itemLabel)}</code>`,
+    { parse_mode: 'HTML', reply_to_message_id: ctx.message.message_id }
+  ).catch(() => {});
 });
 
 // Initialize Cron Scheduler (Every day at 14:00 WIB by default)
@@ -727,6 +882,10 @@ bot.telegram.getMe().then((me) => {
     ? '🔒 AKTIF (Hanya merespons Admin & Grup terdaftar)'
     : '⚠️ TERBUKA (Belum ada ID terdaftar di .env)';
 
+  const catalogCount = productCatalogService.getMasterProducts().length;
+  // Flush pending offline finance sync
+  financeService.flushPendingTransactions().catch(() => {});
+
   console.log(`
 ============================================================
 🤖 BOT RESI TELEGRAM (@${me.username}) BERHASIL AKTIF!
@@ -735,7 +894,8 @@ bot.telegram.getMe().then((me) => {
 • Folder Antrean : ${config.PATHS.QUEUE}
 • Folder Output  : ${config.PATHS.OUTPUT} (Organized by Date)
 • Printer Fisik  : ${config.PRINTER_NAME || 'EPSON L3250 Series'} (Hitam Putih)
-• Perintah Baru  : /print (Cetak Fisik), /list (Nama, SKU, Qty), Rekap Manifest
+• Laporan Sheet  : ${config.GOOGLE_SHEET_WEBHOOK_URL ? '🟢 Webhook Google Sheets Terpasang' : '⚠️ Offline Mode (storage/pending_finance.json)'}
+• Master Katalog : 📦 ${catalogCount} produk aktif (storage/master_products.csv)
 • Jadwal Cron    : ${(!config.CRON_SCHEDULE || ['disabled', 'false', 'none', 'off'].includes(config.CRON_SCHEDULE.toLowerCase())) ? 'DINONAKTIFKAN (Manual via /cetak)' : config.CRON_SCHEDULE}
 ============================================================
 Bot siap menerima PDF & Teks /manual di Telegram!

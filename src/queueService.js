@@ -190,6 +190,10 @@ async function addPdfToQueue(arg1, arg2) {
     type: 'pdf',
     title: filename,
     fileHash: fileHash,
+    nominal: (typeof arg1 === 'object' && arg1.nominal) ? arg1.nominal : 0,
+    toko: (typeof arg1 === 'object' && arg1.toko) ? arg1.toko : '',
+    caption: (typeof arg1 === 'object' && arg1.caption) ? arg1.caption : '',
+    botReplyMessageId: null,
     messageId: messageId,
     chatId: chatId,
     senderName: senderName,
@@ -256,7 +260,13 @@ async function addTextToQueue(arg1) {
         recipient: parsed.recipient,
         address: parsed.address,
         phone: parsed.phone,
+        toko: parsed.toko || '',
+        sip: parsed.sip || '',
         keterangan: parsed.keterangan || '',
+        nominal: parsed.nominal || 0,
+        paymentMethod: parsed.paymentMethod || 'NON-COD',
+        paymentStatus: parsed.paymentStatus || 'TERKIRIM',
+        status: parsed.explicitStatus || parsed.paymentStatus || 'TERKIRIM',
         fileHash: getHash(pdfBuffer),
         messageId: messageId || oldItem.messageId,
         updatedAt: new Date().toISOString(),
@@ -309,7 +319,13 @@ async function addTextToQueue(arg1) {
     recipient: parsed.recipient,
     address: parsed.address,
     phone: parsed.phone,
+    toko: parsed.toko || '',
+    sip: parsed.sip || '',
     keterangan: parsed.keterangan || '',
+    nominal: parsed.nominal || 0,
+    paymentMethod: parsed.paymentMethod || 'NON-COD',
+    paymentStatus: parsed.paymentStatus || 'TERKIRIM',
+    status: parsed.explicitStatus || parsed.paymentStatus || 'TERKIRIM',
     fileHash: getHash(pdfBuffer),
     messageId: messageId,
     chatId: chatId,
@@ -370,13 +386,43 @@ async function addImageToQueue(arg1, arg2) {
   const targetPath = path.join(PATHS.QUEUE, `${timestamp}_img_${safeName}.pdf`);
   fs.writeFileSync(targetPath, pdfBuffer);
 
+  const isObj = typeof arg1 === 'object';
+  const recipient = (isObj && arg1.recipient) ? arg1.recipient : '-';
+  const product = (isObj && arg1.product) ? arg1.product : '-';
+  const sku = (isObj && arg1.sku) ? arg1.sku : '-';
+  const qty = (isObj && arg1.qty) ? arg1.qty : 1;
+  const resi = (isObj && arg1.resi) ? arg1.resi : '-';
+  const expedition = (isObj && arg1.expedition) ? arg1.expedition : 'Ekspedisi (Foto)';
+  const nominal = (isObj && arg1.nominal) ? arg1.nominal : 0;
+  const toko = (isObj && arg1.toko) ? arg1.toko : '';
+  const caption = (isObj && arg1.caption) ? arg1.caption : '';
+  const ocrText = (isObj && arg1.ocrText) ? arg1.ocrText : '';
+
+  const displayTitle = (recipient !== '-' && recipient !== 'Penerima')
+    ? `${recipient} (${product !== '-' ? product : 'Foto Resi'})`
+    : `Foto Resi: ${filename}`;
+
   const newItem = {
     id: `img_${timestamp}`,
     fileName: filename,
     filePath: targetPath,
     type: 'photo',
-    title: `Foto Resi: ${filename}`,
+    title: displayTitle,
+    recipient: recipient,
+    phone: (isObj && arg1.phone) ? arg1.phone : '-',
+    product: product,
+    sku: sku,
+    qty: qty,
+    resi: resi,
+    expedition: expedition,
     fileHash: fileHash,
+    nominal: nominal,
+    toko: toko,
+    caption: caption,
+    ocrText: ocrText,
+    paymentMethod: (isObj && arg1.paymentMethod) ? arg1.paymentMethod : 'NON-COD',
+    paymentStatus: 'TERKIRIM',
+    botReplyMessageId: null,
     messageId: messageId,
     chatId: chatId,
     senderName: senderName,
@@ -600,12 +646,62 @@ function getLatestOutputFile(dateStr = todayStr()) {
   return candidates[0];
 }
 
+/**
+ * Update price (and optional store) for a queue item referenced by Telegram messageId
+ * Matches either the original document/text messageId or the bot confirmation reply messageId
+ */
+function updateQueueItemPrice(targetMsgId, price, customToko = null) {
+  if (!targetMsgId || !price) return null;
+  const metaList = syncQueue();
+  const item = metaList.find(it => 
+    (it.messageId && it.messageId === targetMsgId) || 
+    (it.botReplyMessageId && it.botReplyMessageId === targetMsgId)
+  );
+
+  if (!item) return null;
+
+  item.nominal = price;
+  if (customToko) item.toko = customToko;
+  item.priceSource = 'EXPLICIT_REPLY';
+  item.updatedAt = new Date().toISOString();
+  saveMeta(metaList);
+  return item;
+}
+
+/**
+ * Link bot confirmation messageId to the queue item
+ */
+function setBotReplyMessageId(targetMsgId, botMsgId) {
+  if (!targetMsgId || !botMsgId) return;
+  const metaList = syncQueue();
+  const item = metaList.find(it => it.messageId && it.messageId === targetMsgId);
+  if (item) {
+    item.botReplyMessageId = botMsgId;
+    saveMeta(metaList);
+  }
+}
+
+/**
+ * Find queue item by messageId
+ */
+function getQueueItemByMessageId(targetMsgId) {
+  if (!targetMsgId) return null;
+  const metaList = syncQueue();
+  return metaList.find(it => 
+    (it.messageId && it.messageId === targetMsgId) || 
+    (it.botReplyMessageId && it.botReplyMessageId === targetMsgId)
+  ) || null;
+}
+
 module.exports = {
   addPdfToQueue,
   addTextToQueue,
   addImageToQueue,
   cancelQueueItemByMessageId,
   cancelQueueItemByIndex,
+  updateQueueItemPrice,
+  setBotReplyMessageId,
+  getQueueItemByMessageId,
   getQueueFiles,
   getQueueItems,
   getQueueCount,
