@@ -30,7 +30,8 @@ const sandbox = {
               ["Batch Timestamp", "Tanggal", "Jam", "Batch ID", "No Resi", "Nama Toko", "Penerima", "No HP", "Ekspedisi", "SKU", "Nama Produk", "Qty", "Harga Satuan", "Total Omzet", "Metode", "Status Pesanan", "Sumber", "Status Validasi", "Catatan"],
               ["2026-10-15 10:00:00", "2026-10-15", "10:00:00", "BATCH-1", "JP12345", "Fertipro", "Pak Budi", "08123456", "J&T", "FP-01", "Paket 1 Hektar Fertipro", 1, 395000, 395000, "TRANSFER", "TERKIRIM", "CATALOG", "HARGA OK", ""],
               ["2026-10-15 11:00:00", "2026-10-15", "11:00:00", "BATCH-2", "JP67890", "Yosa Farm", "Pak Joko", "08567890", "J&T", "YS-01", "Bio Humat", 1, 150000, 150000, "TRANSFER", "RETUR", "CATALOG", "HARGA OK", ""],
-              ["2026-09-20 14:00:00", "2026-09-20", "14:00:00", "BATCH-3", "JP99999", "Fertipro", "Pak Slamet", "08777777", "J&T", "FP-01", "Paket 1 Hektar Fertipro", 1, 395000, 395000, "TRANSFER", "TERKIRIM", "CATALOG", "HARGA OK", ""]
+              ["2026-09-20 14:00:00", "2026-09-20", "14:00:00", "BATCH-3", "JP99999", "Fertipro", "Pak Slamet", "08777777", "J&T", "FP-01", "Paket 1 Hektar Fertipro", 1, 395000, 395000, "TRANSFER", "TERKIRIM", "CATALOG", "HARGA OK", ""],
+              ["2026-10-16 09:00:00", "2026-10-16", "09:00:00", "BATCH-TODAY", "JP88888", "Fertipro", "Pak Amir", "08199999", "J&T", "FP-01", "Paket 1 Hektar Fertipro", 1, 395000, 395000, "TRANSFER", "TERKIRIM", "CATALOG", "HARGA OK", ""]
             ]
           })
         };
@@ -75,9 +76,19 @@ console.log('Monthly Recap count:', dashData.monthlyRecap ? dashData.monthlyReca
 console.log('Available Years:', dashData.availableYears);
 console.log('Monthly Recap items:', JSON.stringify(dashData.monthlyRecap, null, 2));
 
+if (!dashData.today) throw new Error('dashData.today is missing');
+if (dashData.today.orders !== 1) throw new Error(`Expected today orders = 1, got ${dashData.today.orders}`);
+if (dashData.today.omzet !== 395000) throw new Error(`Expected today omzet = 395000, got ${dashData.today.omzet}`);
+console.log('✅ Today Data verified:', JSON.stringify(dashData.today));
+
 console.log('\nTesting getDashboardHtml()...');
 const htmlOutput = sandbox.getDashboardHtml();
 console.log('Generated HTML output length:', htmlOutput.length);
+
+if (!htmlOutput.includes('Orderan & Omzet Hari Ini')) throw new Error('Hero card title missing from HTML');
+if (!htmlOutput.includes('id="today-omzet-val"')) throw new Error('Hero card omzet element missing from HTML');
+if (!htmlOutput.includes('renderTodayCard')) throw new Error('renderTodayCard function missing from client script');
+console.log('✅ Today Hero Card HTML & Client script verified in output!');
 
 // Extract the client-side <script> from generated HTML to test client JS syntax
 const scriptMatch = htmlOutput.match(/<script>([\s\S]*?)<\/script>/);

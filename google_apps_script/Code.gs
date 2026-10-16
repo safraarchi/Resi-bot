@@ -781,11 +781,20 @@ function getDashboardData() {
   // Dynamic Month detection (default: bulan saat ini di Indonesia)
   var now = new Date();
   var currentYearMonth = Utilities.formatDate(now, "Asia/Jakarta", "yyyy-MM"); // "2026-10"
+  var todayDateStr = Utilities.formatDate(now, "Asia/Jakarta", "yyyy-MM-dd"); // "2026-10-16"
   var monthNames = [
     "Januari", "Februari", "Maret", "April", "Mei", "Juni",
     "Juli", "Agustus", "September", "Oktober", "November", "Desember"
   ];
   var currentMonthTitle = monthNames[now.getMonth()] + " " + now.getFullYear();
+  var todayFormatted = now.getDate() + " " + monthNames[now.getMonth()] + " " + now.getFullYear();
+
+  var todayOrders = 0;
+  var todayOmzet = 0;
+  var todayReturCount = 0;
+  var todayTotalCount = 0;
+  var todayUnpricedCount = 0;
+  var todayStoreBreakdown = {};
 
   var monthOmzet = 0;
   var monthOrders = 0;
@@ -866,6 +875,24 @@ function getDashboardData() {
         }
         monthStoreSummary[toko].count++;
         monthStoreSummary[toko].omzet += total;
+      }
+    }
+
+    // Today calculation (Pesanan Hari Ini)
+    if (tanggal === todayDateStr) {
+      todayTotalCount++;
+      if (isRetur) {
+        todayReturCount++;
+      } else {
+        todayOrders++;
+        todayOmzet += total;
+        if (!todayStoreBreakdown[toko]) {
+          todayStoreBreakdown[toko] = 0;
+        }
+        todayStoreBreakdown[toko] += total;
+      }
+      if (total === 0 || statusHarga.indexOf("PERLU") !== -1) {
+        todayUnpricedCount++;
       }
     }
 
@@ -1049,6 +1076,18 @@ function getDashboardData() {
   });
 
   var availableYears = Object.keys(yearSet).sort().reverse();
+  if (availableYears.length === 0) {
+    availableYears = [String(now.getFullYear())];
+  }
+
+  var todayTopStore = "-";
+  var topStoreTodayMax = 0;
+  for (var ts in todayStoreBreakdown) {
+    if (todayStoreBreakdown[ts] > topStoreTodayMax) {
+      topStoreTodayMax = todayStoreBreakdown[ts];
+      todayTopStore = ts;
+    }
+  }
 
   return {
     totalOrders: totalOrders,
@@ -1066,6 +1105,17 @@ function getDashboardData() {
     monthlyRecap: monthlyRecap,
     availableYears: availableYears,
     currentYearMonth: currentYearMonth,
+    today: {
+      dateStr: todayDateStr,
+      formattedDate: todayFormatted,
+      orders: todayOrders,
+      omzet: todayOmzet,
+      returCount: todayReturCount,
+      totalCount: todayTotalCount,
+      unpricedCount: todayUnpricedCount,
+      aov: todayOrders > 0 ? Math.round(todayOmzet / todayOrders) : 0,
+      topStore: todayTopStore
+    },
     monthly: {
       monthTitle: currentMonthTitle,
       monthOmzet: monthOmzet,
@@ -1154,6 +1204,76 @@ function getDashboardHtml() {
 '        <button type="button" onclick="filterUnpricedOnly()" class="btn-touch px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 active:scale-95 text-amber-300 text-xs font-semibold border border-amber-500/30 transition flex items-center shadow-xs cursor-pointer">\n' +
 '          <i class="fa-solid fa-pen-to-square mr-1.5"></i> Lihat & Input Harga\n' +
 '        </button>\n' +
+'      </div>\n' +
+'    </div>\n' +
+'\n' +
+'    <!-- HERO CARD: ORDERAN & OMZET HARI INI (WARNA BERBEDA & EYE-CATCHING) -->\n' +
+'    <div class="relative overflow-hidden rounded-2xl sm:rounded-3xl border-2 border-amber-500/50 bg-gradient-to-br from-amber-950/40 via-slate-900/95 to-amber-950/20 p-4 sm:p-5 shadow-2xl shadow-amber-500/10">\n' +
+'      <div class="absolute -right-8 -top-8 w-44 h-44 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>\n' +
+'      <div class="absolute -left-8 -bottom-8 w-44 h-44 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>\n' +
+'\n' +
+'      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 mb-3 border-b border-amber-500/20">\n' +
+'        <div class="flex items-center space-x-3">\n' +
+'          <span class="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center text-sm shadow-inner shadow-amber-500/30">\n' +
+'            <i class="fa-solid fa-bolt-lightning animate-pulse"></i>\n' +
+'          </span>\n' +
+'          <div>\n' +
+'            <div class="flex items-center space-x-2">\n' +
+'              <h2 class="text-sm sm:text-base font-black text-white tracking-tight">Orderan & Omzet Hari Ini</h2>\n' +
+'              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 tracking-wider">\n' +
+'                <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping mr-1.5"></span> LIVE HARI INI\n' +
+'              </span>\n' +
+'            </div>\n' +
+'            <p class="text-[11px] text-amber-200/80 mt-0.5" id="today-date-text">Hari ini, ' + (data.today ? data.today.formattedDate : "16 Oktober 2026") + '</p>\n' +
+'          </div>\n' +
+'        </div>\n' +
+'        <div class="text-xs font-bold px-3 py-1 rounded-xl bg-slate-900/90 border border-amber-500/30 text-amber-300 flex items-center self-start sm:self-auto shadow-xs" id="today-badge-status">\n' +
+'          <i class="fa-solid fa-box-open mr-1.5 text-amber-400"></i> <span id="today-badge-text">' + (data.today ? data.today.orders : 0) + ' Terkirim' + (data.today && data.today.returCount > 0 ? ' • ' + data.today.returCount + ' Retur' : '') + '</span>\n' +
+'        </div>\n' +
+'      </div>\n' +
+'\n' +
+'      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-left">\n' +
+'        <div class="bg-slate-900/90 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-amber-500/40 shadow-sm relative overflow-hidden group">\n' +
+'          <div class="text-[10px] sm:text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center justify-between">\n' +
+'            <span>Omzet Hari Ini</span>\n' +
+'            <div class="w-6 h-6 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs"><i class="fa-solid fa-rupiah-sign"></i></div>\n' +
+'          </div>\n' +
+'          <div class="text-xl sm:text-2xl font-black text-amber-300 tracking-tight mt-1" id="today-omzet-val">Rp ' + Number(data.today ? data.today.omzet : 0).toLocaleString("id-ID") + '</div>\n' +
+'          <div class="text-[10px] sm:text-xs text-slate-400 mt-1 truncate" id="today-omzet-sub">\n' +
+'            <i class="fa-solid fa-circle-check text-emerald-400 mr-1"></i> Masuk omzet terkirim\n' +
+'          </div>\n' +
+'        </div>\n' +
+'\n' +
+'        <div class="bg-slate-900/90 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-amber-500/40 shadow-sm relative overflow-hidden group">\n' +
+'          <div class="text-[10px] sm:text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center justify-between">\n' +
+'            <span>Orderan Terkirim</span>\n' +
+'            <div class="w-6 h-6 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs"><i class="fa-solid fa-truck-ramp-box"></i></div>\n' +
+'          </div>\n' +
+'          <div class="text-xl sm:text-2xl font-black text-white tracking-tight mt-1" id="today-orders-val">' + (data.today ? data.today.orders : 0) + ' <span class="text-xs font-semibold text-slate-400">paket</span></div>\n' +
+'          <div class="text-[10px] sm:text-xs text-slate-400 mt-1 truncate" id="today-orders-sub">\n' +
+'            ' + (data.today && data.today.returCount > 0 ? '<span class="text-rose-400 font-semibold">' + data.today.returCount + ' retur hari ini</span>' : '<span class="text-emerald-400"><i class="fa-solid fa-check mr-1"></i> Siap kirim hari ini</span>') + '\n' +
+'          </div>\n' +
+'        </div>\n' +
+'\n' +
+'        <div class="bg-slate-900/90 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-amber-500/40 shadow-sm relative overflow-hidden group">\n' +
+'          <div class="text-[10px] sm:text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center justify-between">\n' +
+'            <span>Rata-Rata / Paket</span>\n' +
+'            <div class="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs"><i class="fa-solid fa-chart-line"></i></div>\n' +
+'          </div>\n' +
+'          <div class="text-lg sm:text-xl font-black text-emerald-400 tracking-tight mt-1" id="today-aov-val">Rp ' + Number(data.today ? data.today.aov : 0).toLocaleString("id-ID") + '</div>\n' +
+'          <div class="text-[10px] sm:text-xs text-slate-400 mt-1 truncate">Average Order Value</div>\n' +
+'        </div>\n' +
+'\n' +
+'        <div class="bg-slate-900/90 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-amber-500/40 shadow-sm relative overflow-hidden group">\n' +
+'          <div class="text-[10px] sm:text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center justify-between">\n' +
+'            <span>Toko Terbanyak</span>\n' +
+'            <div class="w-6 h-6 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs"><i class="fa-solid fa-store"></i></div>\n' +
+'          </div>\n' +
+'          <div class="text-xs sm:text-sm font-bold text-amber-200 tracking-tight mt-1 truncate" id="today-top-store-val" title="' + (data.today ? data.today.topStore : "-") + '">' + (data.today ? data.today.topStore : "-") + '</div>\n' +
+'          <div class="text-[10px] sm:text-xs text-slate-400 mt-1 truncate" id="today-unpriced-sub">\n' +
+'            ' + (data.today && data.today.unpricedCount > 0 ? '<span class="text-amber-400 font-semibold">' + data.today.unpricedCount + ' butuh harga</span>' : '<span class="text-slate-400">Semua harga lengkap</span>') + '\n' +
+'          </div>\n' +
+'        </div>\n' +
 '      </div>\n' +
 '    </div>\n' +
 '\n' +
@@ -1773,6 +1893,88 @@ function getDashboardHtml() {
 '      sel.value = currentPeriodFilter;\n' +
 '    }\n' +
 '\n' +
+'    function renderTodayCard() {\n' +
+'      if (!rawData) return;\n' +
+'      var todayObj = rawData.today || {};\n' +
+'      var todayDateStr = todayObj.dateStr || "";\n' +
+'      var todayFormatted = todayObj.formattedDate || "";\n' +
+'      var all = (rawData.allOrders && rawData.allOrders.length > 0) ? rawData.allOrders : (rawData.recentOrders || []);\n' +
+'\n' +
+'      var tOrders = 0;\n' +
+'      var tOmzet = 0;\n' +
+'      var tRetur = 0;\n' +
+'      var tUnpriced = 0;\n' +
+'      var storeMap = {};\n' +
+'\n' +
+'      all.forEach(function(o) {\n' +
+'        if (!o.tanggal) return;\n' +
+'        if (todayDateStr && o.tanggal !== todayDateStr) return;\n' +
+'        if (currentStoreFilter !== "ALL" && o.toko !== currentStoreFilter) return;\n' +
+'\n' +
+'        var isRet = (o.statusPesanan === "RETUR" || o.isRetur);\n' +
+'        var isUnpriced = (o.total === 0 || (o.statusHarga && o.statusHarga.indexOf("PERLU") !== -1));\n' +
+'\n' +
+'        if (isUnpriced) tUnpriced++;\n' +
+'        if (isRet) {\n' +
+'          tRetur++;\n' +
+'        } else {\n' +
+'          tOrders++;\n' +
+'          tOmzet += (Number(o.total) || 0);\n' +
+'          var tk = o.toko || "Safra";\n' +
+'          storeMap[tk] = (storeMap[tk] || 0) + (Number(o.total) || 0);\n' +
+'        }\n' +
+'      });\n' +
+'\n' +
+'      var tAov = tOrders > 0 ? Math.round(tOmzet / tOrders) : 0;\n' +
+'      var tTopStore = "-";\n' +
+'      var maxStoreOmzet = 0;\n' +
+'      for (var s in storeMap) {\n' +
+'        if (storeMap[s] > maxStoreOmzet) {\n' +
+'          maxStoreOmzet = storeMap[s];\n' +
+'          tTopStore = s;\n' +
+'        }\n' +
+'      }\n' +
+'      if (tTopStore === "-" && currentStoreFilter !== "ALL") {\n' +
+'        tTopStore = currentStoreFilter;\n' +
+'      }\n' +
+'\n' +
+'      var dateEl = document.getElementById("today-date-text");\n' +
+'      if (dateEl && todayFormatted) {\n' +
+'        dateEl.textContent = "Hari ini, " + todayFormatted + (currentStoreFilter !== "ALL" ? " • Toko: " + currentStoreFilter : "");\n' +
+'      }\n' +
+'      var omzetEl = document.getElementById("today-omzet-val");\n' +
+'      if (omzetEl) omzetEl.textContent = formatRupiah(tOmzet);\n' +
+'      var ordersEl = document.getElementById("today-orders-val");\n' +
+'      if (ordersEl) ordersEl.innerHTML = tOrders + " <span class=\'text-xs font-semibold text-slate-400\'>paket</span>";\n' +
+'      var ordersSub = document.getElementById("today-orders-sub");\n' +
+'      if (ordersSub) {\n' +
+'        if (tRetur > 0) {\n' +
+'          ordersSub.innerHTML = "<span class=\'text-rose-400 font-semibold\'>" + tRetur + " retur hari ini</span>";\n' +
+'        } else {\n' +
+'          ordersSub.innerHTML = "<span class=\'text-emerald-400\'><i class=\'fa-solid fa-check mr-1\'></i> Siap kirim hari ini</span>";\n' +
+'        }\n' +
+'      }\n' +
+'      var aovEl = document.getElementById("today-aov-val");\n' +
+'      if (aovEl) aovEl.textContent = formatRupiah(tAov);\n' +
+'      var topStoreEl = document.getElementById("today-top-store-val");\n' +
+'      if (topStoreEl) {\n' +
+'        topStoreEl.textContent = tTopStore;\n' +
+'        topStoreEl.title = tTopStore;\n' +
+'      }\n' +
+'      var unpricedSub = document.getElementById("today-unpriced-sub");\n' +
+'      if (unpricedSub) {\n' +
+'        if (tUnpriced > 0) {\n' +
+'          unpricedSub.innerHTML = "<span class=\'text-amber-400 font-semibold\'>" + tUnpriced + " butuh harga</span>";\n' +
+'        } else {\n' +
+'          unpricedSub.innerHTML = "<span class=\'text-slate-400\'>Semua harga lengkap</span>";\n' +
+'        }\n' +
+'      }\n' +
+'      var badgeText = document.getElementById("today-badge-text");\n' +
+'      if (badgeText) {\n' +
+'        badgeText.textContent = tOrders + " Terkirim" + (tRetur > 0 ? " • " + tRetur + " Retur" : "");\n' +
+'      }\n' +
+'    }\n' +
+'\n' +
 '    function toggleMonthlyTable() {\n' +
 '      var sec = document.getElementById("monthly-recap-section");\n' +
 '      var btnText = document.getElementById("btn-toggle-monthly-text");\n' +
@@ -2005,6 +2207,7 @@ function getDashboardHtml() {
 '      renderTrendChart(periodDailySummary);\n' +
 '      renderDistChart(periodStoreSummary);\n' +
 '      renderOrdersTable(currentActiveOrders);\n' +
+'      renderTodayCard();\n' +
 '    }\n' +
 '\n' +
 '    // Live Refresh without iframe reload white blank screen\n' +
@@ -2375,6 +2578,7 @@ function getDashboardHtml() {
 '        }\n' +
 '      }\n' +
 '      renderStoreCards();\n' +
+'      renderTodayCard();\n' +
 '      applyFilters();\n' +
 '    }\n' +
 '\n' +
@@ -2942,6 +3146,7 @@ function getDashboardHtml() {
 '    initStoreSelect();\n' +
 '    initPeriodSelector();\n' +
 '    renderMonthlyRecapTable();\n' +
+'    renderTodayCard();\n' +
 '    applyActivePeriodData();\n' +
 '  </script>\n' +
 '</body>\n' +
