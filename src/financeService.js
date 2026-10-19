@@ -68,10 +68,19 @@ async function postToGoogleSheets(payload) {
       throw new Error(`HTTP Error ${response.status}: ${response.statusText}`);
     }
 
-    const resJson = await response.json().catch(() => ({ status: 'success' }));
+    const resJson = await response.json().catch(() => null);
+    if (resJson && resJson.status === 'error') {
+      return {
+        success: false,
+        reason: 'GAS_ERROR',
+        message: resJson.message || 'Error reported by Google Apps Script',
+        data: resJson,
+      };
+    }
+
     return {
       success: true,
-      data: resJson,
+      data: resJson || { status: 'success' },
     };
   } catch (err) {
     return {

@@ -103,6 +103,8 @@ function doPost(e) {
     for (var i = 0; i < transactions.length; i++) {
       var t = transactions[i];
       var qty = cleanNumber(t.qty) || 1;
+      var unitPrice = cleanNumber(t.unitPrice);
+      var totalNominal = cleanNumber(t.totalNominal) || (unitPrice * qty);
       var rawToko = String(t.toko || "").trim();
       var toko = (!rawToko || /^[:\-\s]+$/.test(rawToko)) ? "Safra" : rawToko;
 
