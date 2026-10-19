@@ -1143,15 +1143,33 @@ function getDashboardHtml() {
   var jsonPayload = JSON.stringify(data);
 
   return '<!DOCTYPE html>\n' +
-'<html lang="id">\n' +
+'<html lang="id" class="overflow-x-hidden w-full max-w-full">\n' +
 '<head>\n' +
 '  <meta charset="UTF-8">\n' +
+'  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">\n' +
 '  <title>Executive Financial Dashboard - Bot Resi</title>\n' +
 '  <script src="https://cdn.tailwindcss.com"></script>\n' +
 '  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>\n' +
 '  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">\n' +
 '  <style>\n' +
-'    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #0B1120; color: #F8FAFC; }\n' +
+'    *, *::before, *::after { box-sizing: border-box; }\n' +
+'    html {\n' +
+'      overflow-x: hidden;\n' +
+'      width: 100%;\n' +
+'      max-width: 100vw;\n' +
+'      overscroll-behavior-x: none;\n' +
+'      -webkit-text-size-adjust: 100%;\n' +
+'    }\n' +
+'    body {\n' +
+'      overflow-x: hidden;\n' +
+'      width: 100%;\n' +
+'      max-width: 100vw;\n' +
+'      margin: 0;\n' +
+'      padding: 0;\n' +
+'      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;\n' +
+'      background-color: #0B1120;\n' +
+'      color: #F8FAFC;\n' +
+'    }\n' +
 '    .glass-card { background: rgba(17, 24, 39, 0.78); backdrop-filter: blur(14px); border: 1px solid rgba(255, 255, 255, 0.08); }\n' +
 '    .glass-card-hover:hover { background: rgba(30, 41, 59, 0.9); border-color: rgba(99, 102, 241, 0.4); transform: translateY(-2px); }\n' +
 '    .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }\n' +
@@ -1160,114 +1178,114 @@ function getDashboardHtml() {
 '    .btn-touch { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }\n' +
 '  </style>\n' +
 '</head>\n' +
-'<body class="p-3 sm:p-5 lg:p-7 min-h-screen">\n' +
-'  <div class="max-w-7xl mx-auto space-y-5">\n' +
+'<body class="p-2.5 sm:p-5 lg:p-7 min-h-screen w-full max-w-full overflow-x-hidden">\n' +
+'  <div class="w-full max-w-7xl mx-auto space-y-4 sm:space-y-5 overflow-x-hidden">\n' +
 '\n' +
 '    <!-- HEADER BAR -->\n' +
-'    <header class="glass-card p-4 sm:p-5 rounded-2xl sm:rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">\n' +
-'      <div class="flex items-center space-x-3">\n' +
-'        <div class="w-11 h-11 sm:w-13 sm:h-13 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white text-xl shadow-lg shadow-indigo-500/25 flex-shrink-0">\n' +
+'    <header class="glass-card p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl w-full max-w-full">\n' +
+'      <div class="flex items-center space-x-3 min-w-0">\n' +
+'        <div class="w-10 h-10 sm:w-13 sm:h-13 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white text-lg sm:text-xl shadow-lg shadow-indigo-500/25 flex-shrink-0">\n' +
 '          <i class="fa-solid fa-chart-pie"></i>\n' +
 '        </div>\n' +
-'        <div>\n' +
+'        <div class="min-w-0">\n' +
 '          <div class="flex items-center space-x-2">\n' +
-'            <h1 class="text-lg sm:text-2xl font-black tracking-tight text-white">Financial Dashboard</h1>\n' +
-'            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">PRO</span>\n' +
+'            <h1 class="text-base sm:text-2xl font-black tracking-tight text-white truncate">Financial Dashboard</h1>\n' +
+'            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex-shrink-0">PRO</span>\n' +
 '          </div>\n' +
-'          <p class="text-xs text-slate-400 mt-0.5">Rekapitulasi Omzet Multi-Toko • Real-Time Order Stream</p>\n' +
+'          <p class="text-[11px] sm:text-xs text-slate-400 mt-0.5 truncate">Rekapitulasi Omzet Multi-Toko • Real-Time Stream</p>\n' +
 '        </div>\n' +
 '      </div>\n' +
-'      <div class="flex flex-wrap items-center gap-2 self-end sm:self-center">\n' +
-'        <button onclick="openNewOrderModal()" class="btn-touch px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center shadow-lg shadow-indigo-600/25 cursor-pointer">\n' +
-'          <i class="fa-solid fa-circle-plus mr-1.5"></i> + Input Order Manual\n' +
+'      <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">\n' +
+'        <button onclick="openNewOrderModal()" class="btn-touch px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center shadow-lg shadow-indigo-600/25 cursor-pointer flex-1 sm:flex-initial justify-center">\n' +
+'          <i class="fa-solid fa-circle-plus mr-1.5"></i> + Order Manual\n' +
 '        </button>\n' +
-'        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">\n' +
-'          <span class="w-2 h-2 rounded-full bg-emerald-400 mr-1.5 animate-ping"></span> Live Sync\n' +
+'        <span class="inline-flex items-center px-2 py-1 rounded-full text-[10px] sm:text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex-shrink-0">\n' +
+'          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 animate-ping"></span> Live Sync\n' +
 '        </span>\n' +
-'        <button onclick="refreshDashboardLive()" id="btn-refresh" class="btn-touch px-3 py-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 rounded-xl text-xs font-medium border border-slate-700 transition flex items-center shadow-sm cursor-pointer">\n' +
+'        <button onclick="refreshDashboardLive()" id="btn-refresh" class="btn-touch px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 rounded-xl text-xs font-medium border border-slate-700 transition flex items-center shadow-sm cursor-pointer flex-shrink-0">\n' +
 '          <i class="fa-solid fa-rotate mr-1.5" id="btn-refresh-icon"></i> Refresh\n' +
 '        </button>\n' +
 '      </div>\n' +
 '    </header>\n' +
 '\n' +
 '    <!-- SIMPLE NOTICE BAR (TIDAK BERLEBIHAN) -->\n' +
-'    <div id="unpriced-banner" style="' + (data.unpricedCount > 0 ? '' : 'display: none;') + '" class="glass-card px-4 py-3 rounded-2xl flex flex-wrap items-center justify-between gap-2.5 border-amber-500/30 bg-amber-950/20 text-amber-200 shadow-md transition">\n' +
-'      <div class="flex items-center space-x-2.5">\n' +
+'    <div id="unpriced-banner" style="' + (data.unpricedCount > 0 ? '' : 'display: none;') + '" class="glass-card px-3.5 sm:px-4 py-3 rounded-2xl flex flex-wrap items-center justify-between gap-2 border-amber-500/30 bg-amber-950/20 text-amber-200 shadow-md transition w-full max-w-full">\n' +
+'      <div class="flex items-center space-x-2.5 min-w-0 flex-1">\n' +
 '        <span class="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs flex-shrink-0">\n' +
 '          <i class="fa-solid fa-circle-info"></i>\n' +
 '        </span>\n' +
-'        <span class="text-xs sm:text-sm font-medium">\n' +
+'        <span class="text-xs sm:text-sm font-medium truncate">\n' +
 '          Terdapat <b id="unpriced-count-text" class="text-amber-300 font-bold">' + data.unpricedCount + ' pesanan</b> yang belum terdata harganya.\n' +
 '        </span>\n' +
 '      </div>\n' +
-'      <div class="flex items-center gap-2">\n' +
+'      <div class="flex items-center gap-2 flex-shrink-0">\n' +
 '        <button type="button" onclick="filterUnpricedOnly()" class="btn-touch px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 active:scale-95 text-amber-300 text-xs font-semibold border border-amber-500/30 transition flex items-center shadow-xs cursor-pointer">\n' +
-'          <i class="fa-solid fa-pen-to-square mr-1.5"></i> Lihat & Input Harga\n' +
+'          <i class="fa-solid fa-pen-to-square mr-1.5"></i> Input Harga\n' +
 '        </button>\n' +
 '      </div>\n' +
 '    </div>\n' +
 '\n' +
 '    <!-- HERO CARD: ORDERAN & OMZET HARI INI (WARNA BERBEDA & EYE-CATCHING) -->\n' +
-'    <div class="relative overflow-hidden rounded-2xl sm:rounded-3xl border-2 border-amber-500/50 bg-gradient-to-br from-amber-950/40 via-slate-900/95 to-amber-950/20 p-4 sm:p-5 shadow-2xl shadow-amber-500/10">\n' +
+'    <div class="relative overflow-hidden rounded-2xl sm:rounded-3xl border-2 border-amber-500/50 bg-gradient-to-br from-amber-950/40 via-slate-900/95 to-amber-950/20 p-3.5 sm:p-5 shadow-2xl shadow-amber-500/10 w-full max-w-full">\n' +
 '      <div class="absolute -right-8 -top-8 w-44 h-44 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>\n' +
 '      <div class="absolute -left-8 -bottom-8 w-44 h-44 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>\n' +
 '\n' +
-'      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 mb-3 border-b border-amber-500/20">\n' +
-'        <div class="flex items-center space-x-3">\n' +
-'          <span class="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center text-sm shadow-inner shadow-amber-500/30">\n' +
+'      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 mb-3 border-b border-amber-500/20 min-w-0">\n' +
+'        <div class="flex items-center space-x-2.5 sm:space-x-3 min-w-0">\n' +
+'          <span class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center text-xs sm:text-sm shadow-inner shadow-amber-500/30 flex-shrink-0">\n' +
 '            <i class="fa-solid fa-bolt-lightning animate-pulse"></i>\n' +
 '          </span>\n' +
-'          <div>\n' +
+'          <div class="min-w-0">\n' +
 '            <div class="flex items-center space-x-2">\n' +
-'              <h2 class="text-sm sm:text-base font-black text-white tracking-tight">Orderan & Omzet Hari Ini</h2>\n' +
-'              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 tracking-wider">\n' +
-'                <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping mr-1.5"></span> LIVE HARI INI\n' +
+'              <h2 class="text-xs sm:text-base font-black text-white tracking-tight truncate">Orderan & Omzet Hari Ini</h2>\n' +
+'              <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 tracking-wider flex-shrink-0">\n' +
+'                <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping mr-1"></span> LIVE\n' +
 '              </span>\n' +
 '            </div>\n' +
-'            <p class="text-[11px] text-amber-200/80 mt-0.5" id="today-date-text">Hari ini, ' + (data.today ? data.today.formattedDate : "16 Oktober 2026") + '</p>\n' +
+'            <p class="text-[10px] sm:text-[11px] text-amber-200/80 mt-0.5 truncate" id="today-date-text">Hari ini, ' + (data.today ? data.today.formattedDate : "16 Oktober 2026") + '</p>\n' +
 '          </div>\n' +
 '        </div>\n' +
-'        <div class="text-xs font-bold px-3 py-1 rounded-xl bg-slate-900/90 border border-amber-500/30 text-amber-300 flex items-center self-start sm:self-auto shadow-xs" id="today-badge-status">\n' +
+'        <div class="text-[11px] sm:text-xs font-bold px-2.5 py-1 rounded-xl bg-slate-900/90 border border-amber-500/30 text-amber-300 flex items-center self-start sm:self-auto shadow-xs flex-shrink-0" id="today-badge-status">\n' +
 '          <i class="fa-solid fa-box-open mr-1.5 text-amber-400"></i> <span id="today-badge-text">' + (data.today ? data.today.orders : 0) + ' Terkirim' + (data.today && data.today.returCount > 0 ? ' • ' + data.today.returCount + ' Retur' : '') + '</span>\n' +
 '        </div>\n' +
 '      </div>\n' +
 '\n' +
-'      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-left">\n' +
-'        <div class="bg-slate-900/90 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-amber-500/40 shadow-sm relative overflow-hidden group">\n' +
+'      <div class="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 text-left w-full max-w-full">\n' +
+'        <div class="bg-slate-900/90 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-amber-500/40 shadow-sm relative overflow-hidden group min-w-0">\n' +
 '          <div class="text-[10px] sm:text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center justify-between">\n' +
-'            <span>Omzet Hari Ini</span>\n' +
-'            <div class="w-6 h-6 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs"><i class="fa-solid fa-rupiah-sign"></i></div>\n' +
+'            <span class="truncate">Omzet Hari Ini</span>\n' +
+'            <div class="w-5 h-5 sm:w-6 sm:h-6 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-[10px] sm:text-xs flex-shrink-0"><i class="fa-solid fa-rupiah-sign"></i></div>\n' +
 '          </div>\n' +
-'          <div class="text-xl sm:text-2xl font-black text-amber-300 tracking-tight mt-1" id="today-omzet-val">Rp ' + Number(data.today ? data.today.omzet : 0).toLocaleString("id-ID") + '</div>\n' +
+'          <div class="text-sm sm:text-2xl font-black text-amber-300 tracking-tight mt-1 truncate" id="today-omzet-val">Rp ' + Number(data.today ? data.today.omzet : 0).toLocaleString("id-ID") + '</div>\n' +
 '          <div class="text-[10px] sm:text-xs text-slate-400 mt-1 truncate" id="today-omzet-sub">\n' +
 '            <i class="fa-solid fa-circle-check text-emerald-400 mr-1"></i> Masuk omzet terkirim\n' +
 '          </div>\n' +
 '        </div>\n' +
 '\n' +
-'        <div class="bg-slate-900/90 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-amber-500/40 shadow-sm relative overflow-hidden group">\n' +
+'        <div class="bg-slate-900/90 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-amber-500/40 shadow-sm relative overflow-hidden group min-w-0">\n' +
 '          <div class="text-[10px] sm:text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center justify-between">\n' +
-'            <span>Orderan Terkirim</span>\n' +
-'            <div class="w-6 h-6 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs"><i class="fa-solid fa-truck-ramp-box"></i></div>\n' +
+'            <span class="truncate">Orderan Terkirim</span>\n' +
+'            <div class="w-5 h-5 sm:w-6 sm:h-6 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-[10px] sm:text-xs flex-shrink-0"><i class="fa-solid fa-truck-ramp-box"></i></div>\n' +
 '          </div>\n' +
-'          <div class="text-xl sm:text-2xl font-black text-white tracking-tight mt-1" id="today-orders-val">' + (data.today ? data.today.orders : 0) + ' <span class="text-xs font-semibold text-slate-400">paket</span></div>\n' +
+'          <div class="text-sm sm:text-2xl font-black text-white tracking-tight mt-1 truncate" id="today-orders-val">' + (data.today ? data.today.orders : 0) + ' <span class="text-xs font-semibold text-slate-400">paket</span></div>\n' +
 '          <div class="text-[10px] sm:text-xs text-slate-400 mt-1 truncate" id="today-orders-sub">\n' +
 '            ' + (data.today && data.today.returCount > 0 ? '<span class="text-rose-400 font-semibold">' + data.today.returCount + ' retur hari ini</span>' : '<span class="text-emerald-400"><i class="fa-solid fa-check mr-1"></i> Siap kirim hari ini</span>') + '\n' +
 '          </div>\n' +
 '        </div>\n' +
 '\n' +
-'        <div class="bg-slate-900/90 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-amber-500/40 shadow-sm relative overflow-hidden group">\n' +
+'        <div class="bg-slate-900/90 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-amber-500/40 shadow-sm relative overflow-hidden group min-w-0">\n' +
 '          <div class="text-[10px] sm:text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center justify-between">\n' +
-'            <span>Rata-Rata / Paket</span>\n' +
-'            <div class="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs"><i class="fa-solid fa-chart-line"></i></div>\n' +
+'            <span class="truncate">Rata-Rata Paket</span>\n' +
+'            <div class="w-5 h-5 sm:w-6 sm:h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[10px] sm:text-xs flex-shrink-0"><i class="fa-solid fa-chart-line"></i></div>\n' +
 '          </div>\n' +
-'          <div class="text-lg sm:text-xl font-black text-emerald-400 tracking-tight mt-1" id="today-aov-val">Rp ' + Number(data.today ? data.today.aov : 0).toLocaleString("id-ID") + '</div>\n' +
+'          <div class="text-xs sm:text-xl font-black text-emerald-400 tracking-tight mt-1 truncate" id="today-aov-val">Rp ' + Number(data.today ? data.today.aov : 0).toLocaleString("id-ID") + '</div>\n' +
 '          <div class="text-[10px] sm:text-xs text-slate-400 mt-1 truncate">Average Order Value</div>\n' +
 '        </div>\n' +
 '\n' +
-'        <div class="bg-slate-900/90 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-amber-500/40 shadow-sm relative overflow-hidden group">\n' +
+'        <div class="bg-slate-900/90 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-amber-500/40 shadow-sm relative overflow-hidden group min-w-0">\n' +
 '          <div class="text-[10px] sm:text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center justify-between">\n' +
-'            <span>Toko Terbanyak</span>\n' +
-'            <div class="w-6 h-6 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs"><i class="fa-solid fa-store"></i></div>\n' +
+'            <span class="truncate">Toko Terbanyak</span>\n' +
+'            <div class="w-5 h-5 sm:w-6 sm:h-6 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-[10px] sm:text-xs flex-shrink-0"><i class="fa-solid fa-store"></i></div>\n' +
 '          </div>\n' +
 '          <div class="text-xs sm:text-sm font-bold text-amber-200 tracking-tight mt-1 truncate" id="today-top-store-val" title="' + (data.today ? data.today.topStore : "-") + '">' + (data.today ? data.today.topStore : "-") + '</div>\n' +
 '          <div class="text-[10px] sm:text-xs text-slate-400 mt-1 truncate" id="today-unpriced-sub">\n' +
@@ -1278,53 +1296,53 @@ function getDashboardHtml() {
 '    </div>\n' +
 '\n' +
 '    <!-- PERIOD & STATISTIC SELECTOR BAR -->\n' +
-'    <div class="glass-card p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-lg border border-slate-700/60 bg-gradient-to-r from-slate-900/90 via-slate-900/80 to-indigo-950/40">\n' +
-'      <div class="flex items-center space-x-3">\n' +
-'        <div class="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-base flex-shrink-0">\n' +
+'    <div class="glass-card p-3.5 sm:p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-lg border border-slate-700/60 bg-gradient-to-r from-slate-900/90 via-slate-900/80 to-indigo-950/40 w-full max-w-full">\n' +
+'      <div class="flex items-center space-x-3 min-w-0">\n' +
+'        <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-sm sm:text-base flex-shrink-0">\n' +
 '          <i class="fa-solid fa-calendar-days"></i>\n' +
 '        </div>\n' +
-'        <div>\n' +
+'        <div class="min-w-0">\n' +
 '          <div class="flex items-center space-x-2">\n' +
-'            <h2 class="text-sm sm:text-base font-bold text-white tracking-tight">Filter Periode Statistik</h2>\n' +
-'            <span id="period-badge-label" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Memuat...</span>\n' +
+'            <h2 class="text-xs sm:text-base font-bold text-white tracking-tight truncate">Filter Periode Statistik</h2>\n' +
+'            <span id="period-badge-label" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex-shrink-0">Memuat...</span>\n' +
 '          </div>\n' +
-'          <p class="text-[11px] text-slate-400 mt-0.5">Pilih rentang bulan / tahun untuk memfilter omzet, grafik harian, dan ringkasan toko</p>\n' +
+'          <p class="text-[10px] sm:text-[11px] text-slate-400 mt-0.5 truncate">Pilih rentang bulan / tahun untuk memfilter omzet & grafik</p>\n' +
 '        </div>\n' +
 '      </div>\n' +
 '\n' +
-'      <div class="flex flex-wrap items-center gap-2">\n' +
-'        <div class="relative">\n' +
-'          <select id="period-filter-select" onchange="onPeriodChange(this.value)" class="bg-slate-900 border border-indigo-500/40 text-indigo-200 text-xs rounded-xl px-3 py-2 font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer">\n' +
+'      <div class="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full md:w-auto">\n' +
+'        <div class="relative w-full sm:w-auto flex-1 sm:flex-initial min-w-0">\n' +
+'          <select id="period-filter-select" onchange="onPeriodChange(this.value)" class="w-full sm:w-auto bg-slate-900 border border-indigo-500/40 text-indigo-200 text-xs rounded-xl px-3 py-2 font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer truncate">\n' +
 '            <option value="CURRENT_MONTH" selected>📅 Bulan Ini</option>\n' +
 '            <option value="LAST_MONTH">📅 Bulan Lalu</option>\n' +
 '            <option value="ALL">🌟 Total Semua (All-Time)</option>\n' +
 '          </select>\n' +
 '        </div>\n' +
-'        <button type="button" onclick="toggleMonthlyTable()" id="btn-toggle-monthly" class="btn-touch px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-semibold border border-slate-700 transition flex items-center shadow-xs cursor-pointer">\n' +
-'          <i class="fa-solid fa-table-list mr-1.5 text-indigo-400"></i> <span id="btn-toggle-monthly-text">Lihat Rekap Tiap Bulan</span>\n' +
+'        <button type="button" onclick="toggleMonthlyTable()" id="btn-toggle-monthly" class="btn-touch w-full sm:w-auto px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-semibold border border-slate-700 transition flex items-center justify-center shadow-xs cursor-pointer flex-shrink-0">\n' +
+'          <i class="fa-solid fa-table-list mr-1.5 text-indigo-400"></i> <span id="btn-toggle-monthly-text">Rekap Tiap Bulan</span>\n' +
 '        </button>\n' +
 '      </div>\n' +
 '    </div>\n' +
 '\n' +
 '    <!-- MONTHLY BREAKDOWN TABLE (REKAPITULASI PER BULAN) -->\n' +
-'    <div id="monthly-recap-section" style="display: none;" class="glass-card p-4 sm:p-5 rounded-2xl sm:rounded-3xl border border-indigo-500/30 bg-slate-900/80 shadow-xl space-y-3">\n' +
-'      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">\n' +
-'        <div class="flex items-center space-x-2.5">\n' +
-'          <span class="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-sm">\n' +
+'    <div id="monthly-recap-section" style="display: none;" class="glass-card p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl border border-indigo-500/30 bg-slate-900/80 shadow-xl space-y-3 w-full max-w-full overflow-hidden">\n' +
+'      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3 min-w-0">\n' +
+'        <div class="flex items-center space-x-2.5 min-w-0">\n' +
+'          <span class="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-sm flex-shrink-0">\n' +
 '            <i class="fa-solid fa-chart-column"></i>\n' +
 '          </span>\n' +
-'          <div>\n' +
-'            <h3 class="text-sm sm:text-base font-bold text-white tracking-tight">Rekapitulasi Omzet Tiap Bulan</h3>\n' +
-'            <p class="text-[11px] text-slate-400">Pilih baris bulan di bawah untuk langsung menyaring dashboard</p>\n' +
+'          <div class="min-w-0">\n' +
+'            <h3 class="text-xs sm:text-base font-bold text-white tracking-tight truncate">Rekapitulasi Omzet Tiap Bulan</h3>\n' +
+'            <p class="text-[10px] sm:text-[11px] text-slate-400 truncate">Pilih baris bulan di bawah untuk langsung menyaring dashboard</p>\n' +
 '          </div>\n' +
 '        </div>\n' +
-'        <button type="button" onclick="toggleMonthlyTable()" class="text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-slate-800 cursor-pointer">\n' +
+'        <button type="button" onclick="toggleMonthlyTable()" class="text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-slate-800 cursor-pointer self-end sm:self-auto flex-shrink-0">\n' +
 '          <i class="fa-solid fa-xmark mr-1"></i> Tutup\n' +
 '        </button>\n' +
 '      </div>\n' +
 '\n' +
-'      <div class="overflow-x-auto custom-scrollbar">\n' +
-'        <table class="w-full text-left text-xs">\n' +
+'      <div class="w-full max-w-full overflow-x-auto custom-scrollbar">\n' +
+'        <table class="w-full text-left text-xs min-w-[550px] sm:min-w-full">\n' +
 '          <thead class="bg-slate-950/80 text-slate-400 font-semibold uppercase tracking-wider text-[10px] sm:text-[11px] border-b border-slate-800">\n' +
 '            <tr>\n' +
 '              <th class="px-3.5 py-2.5">Bulan & Tahun</th>\n' +
@@ -1513,18 +1531,18 @@ function getDashboardHtml() {
 '    </section>\n' +
 '\n' +
 '    <!-- FILTER & SEARCH CONTROL BAR -->\n' +
-'    <div class="glass-card p-3.5 sm:p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-md">\n' +
+'    <div class="glass-card p-3 sm:p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-2.5 sm:gap-3 shadow-md w-full max-w-full overflow-hidden">\n' +
 '      <!-- Store Dropdown -->\n' +
-'      <div class="flex items-center space-x-2 flex-shrink-0">\n' +
-'        <label for="store-filter" class="text-xs font-semibold text-slate-400 uppercase tracking-wider">\n' +
+'      <div class="flex items-center space-x-2 flex-shrink-0 w-full sm:w-auto">\n' +
+'        <label for="store-filter" class="text-[11px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wider flex-shrink-0">\n' +
 '          <i class="fa-solid fa-filter text-indigo-400 mr-1"></i> Toko:\n' +
 '        </label>\n' +
-'        <select id="store-filter" onchange="onSelectStore(this.value)" class="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500 focus:outline-none font-medium cursor-pointer">\n' +
+'        <select id="store-filter" onchange="onSelectStore(this.value)" class="w-full sm:w-auto bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500 focus:outline-none font-medium cursor-pointer truncate">\n' +
 '        </select>\n' +
 '      </div>\n' +
 '\n' +
 '      <!-- Search Box -->\n' +
-'      <div class="relative flex-1 max-w-md">\n' +
+'      <div class="relative flex-1 w-full max-w-full md:max-w-md min-w-0">\n' +
 '        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>\n' +
 '        <input type="text" id="order-search" oninput="applyFilters()" placeholder="Cari Resi, Nama Pembeli, SKU, atau Produk..." class="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl pl-8 pr-8 py-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none placeholder:text-slate-500">\n' +
 '        <button type="button" onclick="clearSearch()" class="btn-touch absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs cursor-pointer">\n' +
@@ -1533,35 +1551,35 @@ function getDashboardHtml() {
 '      </div>\n' +
 '\n' +
 '      <!-- Filter Status Pills -->\n' +
-'      <div class="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0">\n' +
-'        <button type="button" onclick="setStatusFilter(\'ALL\')" id="tab-all" class="btn-touch filter-tab px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition cursor-pointer">Semua</button>\n' +
-'        <button type="button" onclick="setStatusFilter(\'TERKIRIM\')" id="tab-terkirim" class="btn-touch filter-tab px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-emerald-300 hover:bg-slate-700 transition flex items-center cursor-pointer">\n' +
+'      <div class="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0 w-full md:w-auto min-w-0 max-w-full custom-scrollbar flex-nowrap flex-shrink-0">\n' +
+'        <button type="button" onclick="setStatusFilter(\'ALL\')" id="tab-all" class="btn-touch filter-tab px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition cursor-pointer whitespace-nowrap flex-shrink-0">Semua</button>\n' +
+'        <button type="button" onclick="setStatusFilter(\'TERKIRIM\')" id="tab-terkirim" class="btn-touch filter-tab px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-emerald-300 hover:bg-slate-700 transition flex items-center cursor-pointer whitespace-nowrap flex-shrink-0">\n' +
 '          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5"></span> Terkirim\n' +
 '        </button>\n' +
-'        <button type="button" onclick="setStatusFilter(\'RETUR\')" id="tab-retur" class="btn-touch filter-tab px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-rose-300 hover:bg-slate-700 transition flex items-center cursor-pointer">\n' +
+'        <button type="button" onclick="setStatusFilter(\'RETUR\')" id="tab-retur" class="btn-touch filter-tab px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-rose-300 hover:bg-slate-700 transition flex items-center cursor-pointer whitespace-nowrap flex-shrink-0">\n' +
 '          <span class="w-1.5 h-1.5 rounded-full bg-rose-400 mr-1.5"></span> Retur\n' +
 '        </button>\n' +
-'        <button type="button" onclick="setStatusFilter(\'UNPRICED\')" id="tab-unpriced" class="btn-touch filter-tab px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-amber-300 hover:bg-slate-700 transition flex items-center cursor-pointer">\n' +
+'        <button type="button" onclick="setStatusFilter(\'UNPRICED\')" id="tab-unpriced" class="btn-touch filter-tab px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-amber-300 hover:bg-slate-700 transition flex items-center cursor-pointer whitespace-nowrap flex-shrink-0">\n' +
 '          <span class="w-1.5 h-1.5 rounded-full bg-amber-400 mr-1.5"></span> Butuh Harga\n' +
 '        </button>\n' +
 '      </div>\n' +
 '    </div>\n' +
 '\n' +
 '    <!-- ORDER TRANSACTIONS STREAM TABLE -->\n' +
-'    <section class="glass-card rounded-2xl sm:rounded-3xl overflow-hidden shadow-xl border border-slate-800">\n' +
-'      <div class="px-4 py-3.5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-900/60">\n' +
-'        <div class="flex items-center space-x-2">\n' +
-'          <div class="w-2 h-2 rounded-full bg-indigo-500"></div>\n' +
-'          <h3 class="text-xs sm:text-sm font-bold text-white tracking-tight">Daftar Transaksi Real-Time</h3>\n' +
-'          <span class="text-[11px] text-slate-400" id="order-count-badge">(' + data.totalOrders + ' Transaksi)</span>\n' +
+'    <section class="glass-card rounded-2xl sm:rounded-3xl overflow-hidden shadow-xl border border-slate-800 w-full max-w-full">\n' +
+'      <div class="px-3.5 sm:px-4 py-3 sm:py-3.5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-900/60 min-w-0">\n' +
+'        <div class="flex items-center space-x-2 min-w-0">\n' +
+'          <div class="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0"></div>\n' +
+'          <h3 class="text-xs sm:text-sm font-bold text-white tracking-tight truncate">Daftar Transaksi Real-Time</h3>\n' +
+'          <span class="text-[11px] text-slate-400 flex-shrink-0" id="order-count-badge">(' + data.totalOrders + ' Transaksi)</span>\n' +
 '        </div>\n' +
-'        <div class="text-[11px] text-slate-400 flex items-center gap-1.5">\n' +
+'        <div class="text-[11px] text-slate-400 flex items-center gap-1.5 flex-shrink-0">\n' +
 '          <i class="fa-solid fa-table-list text-indigo-400"></i> Sheet: <code class="bg-slate-800 px-1.5 py-0.5 rounded text-indigo-300 font-mono text-[10px]">List_Order</code>\n' +
 '        </div>\n' +
 '      </div>\n' +
 '\n' +
-'      <div class="overflow-x-auto custom-scrollbar max-h-[550px]">\n' +
-'        <table class="w-full text-left text-xs">\n' +
+'      <div class="w-full max-w-full overflow-x-auto custom-scrollbar max-h-[550px]">\n' +
+'        <table class="w-full text-left text-xs min-w-[620px] sm:min-w-full">\n' +
 '          <thead class="bg-slate-900/90 sticky top-0 text-slate-400 font-semibold uppercase tracking-wider text-[10px] sm:text-[11px] border-b border-slate-800 backdrop-blur-md z-10">\n' +
 '            <tr>\n' +
 '              <th class="px-3.5 py-3">Waktu</th>\n' +
