@@ -107,7 +107,9 @@ async function recordBatchTransactions(manifestList, batchId, customTimestamp = 
     const d = item.details || {};
     
     const finalNominalInput = (item.nominal && item.nominal > 0) ? item.nominal : (d.nominal || 0);
-    const finalTokoInput = item.toko || d.toko || '';
+    const rawToko = item.toko || d.toko || '';
+    const cleanToko = String(rawToko).trim();
+    const finalTokoInput = (!cleanToko || /^[:\-\s]+$/.test(cleanToko)) ? 'Safra' : cleanToko;
     const isManual = item.type === 'manual' || d.type === 'manual' || (item.fileName && item.fileName.includes('text_resi'));
     const isBoscod = Boolean(item.isBoscod || d.isBoscod || item.type === 'jnt' || d.type === 'jnt' || (d.expedition && d.expedition.includes('bosCOD')) || (item.expedition && item.expedition.includes('bosCOD')));
 
@@ -133,7 +135,10 @@ async function recordBatchTransactions(manifestList, batchId, customTimestamp = 
     const totalNominal = pricing.totalNominal;
     totalBatchNominal += totalNominal;
 
-    const store = pricing.toko || 'Safra';
+    let store = pricing.toko || 'Safra';
+    if (!store || /^[:\-\s]+$/.test(String(store).trim())) {
+      store = 'Safra';
+    }
     if (!storeBreakdown[store]) {
       storeBreakdown[store] = { count: 0, nominal: 0, cod: 0, transfer: 0, missingPriceCount: 0 };
     }

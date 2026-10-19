@@ -175,6 +175,9 @@ function parseReceiptOcrText(ocrText, options = {}) {
     }
   }
 
+  const explicitStoreRaw = options.explicitStore || extractStoreFromText(combined) || '';
+  const cleanExplicitStore = (explicitStoreRaw && !/^[:\-\s]+$/.test(String(explicitStoreRaw).trim())) ? String(explicitStoreRaw).trim() : '';
+
   // 7. Resolve with Master Product Catalog (exact SKU, fuzzy title, store & standard price)
   const resolved = resolvePricing({
     sku: (isBoscod || sku === '-') ? '-' : sku,
@@ -183,14 +186,17 @@ function parseReceiptOcrText(ocrText, options = {}) {
     rawText: combined,
     nominal: nominal,
     qty: qty,
-    toko: options.explicitStore || extractStoreFromText(combined) || '',
+    toko: cleanExplicitStore,
     sender: sender,
     isCod: isCod,
     isBoscod: isBoscod,
     isManual: false,
   });
 
-  const finalToko = resolved.toko || options.explicitStore || extractStoreFromText(combined) || 'Safra';
+  let finalToko = resolved.toko || cleanExplicitStore || 'Safra';
+  if (!finalToko || /^[:\-\s]+$/.test(String(finalToko).trim())) {
+    finalToko = 'Safra';
+  }
   const finalSku = (resolved.sku && resolved.sku !== '-') ? resolved.sku : (sku !== '-' ? sku : '-');
   const finalProduct = (resolved.productName && resolved.productName !== 'Produk') ? resolved.productName : (product !== '-' ? product : 'Paket');
   const finalNominal = (resolved.totalNominal > 0) ? resolved.totalNominal : nominal;

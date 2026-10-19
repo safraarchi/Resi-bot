@@ -90,6 +90,53 @@ const sUtami = productCatalogService.resolvePricing({
 assert.strictEqual(sUtami.toko, 'Utamigro');
 console.log('  ✅ [PASS] Resi dengan SKU "UGKOPI" -> Toko: "Utamigro"');
 
+// Rule: Toko kosong, ":", atau "-" otomatis masuk ke Safra
+const sColon = productCatalogService.resolvePricing({
+  isManual: true,
+  toko: ':',
+  product: 'Produk Tanpa Toko Khusus',
+  nominal: 100000,
+});
+assert.strictEqual(sColon.toko, 'Safra', 'Toko ":" harus otomatis masuk ke Safra');
+console.log('  ✅ [PASS] Toko ":" -> Otomatis masuk ke Safra');
+
+const sEmpty = productCatalogService.resolvePricing({
+  isManual: true,
+  toko: '',
+  product: 'Produk Tanpa Toko Khusus',
+  nominal: 100000,
+});
+assert.strictEqual(sEmpty.toko, 'Safra', 'Toko kosong "" harus otomatis masuk ke Safra');
+console.log('  ✅ [PASS] Toko kosong "" -> Otomatis masuk ke Safra');
+
+const sDash = productCatalogService.resolvePricing({
+  isManual: true,
+  toko: '-',
+  product: 'Produk Tanpa Toko Khusus',
+  nominal: 100000,
+});
+assert.strictEqual(sDash.toko, 'Safra', 'Toko "-" harus otomatis masuk ke Safra');
+console.log('  ✅ [PASS] Toko "-" -> Otomatis masuk ke Safra');
+
+// Test parseShippingText dengan template Toko: : dan Toko: kosong
+const parsedTextColon = parseShippingText(
+  '/manual\nNama: H. Budi\nAlamat: Jl. Melati No. 5\nNo HP: 08123456789\nToko: :\nHarga: 250000\nKeterangan: Paket Khusus'
+);
+assert.strictEqual(parsedTextColon.toko, 'Safra', 'Text format "Toko: :" harus menghasilkan toko "Safra"');
+console.log('  ✅ [PASS] Format text /manual dengan "Toko: :" -> Otomatis toko "Safra"');
+
+const parsedTextEmpty = parseShippingText(
+  '/manual\nNama: H. Budi\nAlamat: Jl. Melati No. 5\nNo HP: 08123456789\nToko: \nHarga: 250000\nKeterangan: Paket Khusus'
+);
+assert.strictEqual(parsedTextEmpty.toko, 'Safra', 'Text format "Toko: " harus menghasilkan toko "Safra"');
+console.log('  ✅ [PASS] Format text /manual dengan "Toko: " (kosong) -> Otomatis toko "Safra"');
+
+const parsedTextNoToko = parseShippingText(
+  '/manual\nNama: H. Budi\nAlamat: Jl. Melati No. 5\nNo HP: 08123456789\nHarga: 250000\nKeterangan: Paket Khusus'
+);
+assert.strictEqual(parsedTextNoToko.toko, 'Safra', 'Text format /manual tanpa baris Toko harus menghasilkan toko "Safra"');
+console.log('  ✅ [PASS] Format text /manual tanpa baris Toko -> Otomatis toko "Safra"');
+
 // ------------------------------------------------------------------
 // 3. Test Master Product Catalog & Fallback Peringatan Harga
 // ------------------------------------------------------------------

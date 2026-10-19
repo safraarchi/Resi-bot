@@ -342,6 +342,8 @@ function resolveStore(params = {}) {
   // Rule 3: Direct Toko from catalog match
   if (toko) {
     const t = String(toko).trim();
+    // Jika toko kosong, ":", "-", atau hanya simbol titik dua -> masuk ke Safra
+    if (!t || /^[:\-\s]+$/.test(t)) return 'Safra';
     if (/fertipro/i.test(t)) return 'Fertipro';
     if (/utamigro/i.test(t)) return 'Utamigro';
     if (/interfarm/i.test(t)) return 'Interfarm';
@@ -369,9 +371,12 @@ function resolveStore(params = {}) {
     if (s.startsWith('SMH') || s.startsWith('MANUAL')) return 'Safra';
   }
 
-  // Rule 6: Sender or Default (exclude Telegram handles like @username or Staff)
+  // Rule 6: Sender or Default (exclude Telegram handles like @username, Staff, Sistem, atau simbol)
   if (sender && sender !== 'SAFRA' && sender !== 'Sistem' && sender !== 'Staff' && !sender.startsWith('@')) {
-    return sender;
+    const cleanSender = String(sender).trim();
+    if (cleanSender && !/^[:\-\s]+$/.test(cleanSender)) {
+      return cleanSender;
+    }
   }
   return 'Safra';
 }

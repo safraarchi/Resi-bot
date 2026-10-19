@@ -103,10 +103,8 @@ function doPost(e) {
     for (var i = 0; i < transactions.length; i++) {
       var t = transactions[i];
       var qty = cleanNumber(t.qty) || 1;
-      var unitPrice = cleanNumber(t.unitPrice);
-      var totalNominal = cleanNumber(t.totalNominal) || (unitPrice * qty);
-      var toko = (t.toko || "Safra").trim();
-      if (!toko) toko = "Safra";
+      var rawToko = String(t.toko || "").trim();
+      var toko = (!rawToko || /^[:\-\s]+$/.test(rawToko)) ? "Safra" : rawToko;
 
       var priceSource = t.priceSource || "-";
       var priceStatus = (totalNominal > 0) ? "HARGA OK" : "⚠️ PERLU INPUT HARGA";
@@ -278,7 +276,8 @@ function updateOrderPrice(payload) {
     var qty = cleanNumber(values[foundIndex - 1][11]) || 1;
     var unitPrice = Math.round(newPrice / qty);
     var totalNominal = newPrice;
-    var newToko = String(payload.toko || payload.newToko || "").trim();
+    var rawNewToko = String(payload.toko || payload.newToko || "").trim();
+    var newToko = (payload.toko !== undefined || payload.newToko !== undefined) ? ((!rawNewToko || /^[:\-\s]+$/.test(rawNewToko)) ? "Safra" : rawNewToko) : "";
 
     if (payload.newResi) {
       orderSheet.getRange(foundIndex, 5).setValue(payload.newResi);
@@ -371,8 +370,8 @@ function createManualOrder(payload) {
       resi = "MAN-" + Math.floor(100000 + Math.random() * 900000);
     }
 
-    var toko = (payload.toko || "Fertipro").trim();
-    if (!toko) toko = "Fertipro";
+    var rawToko = String(payload.toko || "").trim();
+    var toko = (!rawToko || /^[:\-\s]+$/.test(rawToko)) ? "Safra" : rawToko;
 
     var recipient = (payload.recipient || payload.penerima || "-").trim();
     var phone = (payload.phone || payload.noHp || "-").trim();
@@ -536,8 +535,8 @@ function recalculateRekapKeuangan(ss) {
       var row = values[i];
       if (!row || !row[0]) continue;
       var dateStr = formatAppDate(row[1]);
-      var toko = (row[5] || "Safra").toString().trim();
-      if (!toko) toko = "Safra";
+      var rawToko = String(row[5] || "").trim();
+      var toko = (!rawToko || /^[:\-\s]+$/.test(rawToko)) ? "Safra" : rawToko;
       var total = cleanNumber(row[13]);
       var statusHarga = String(row[17] || "");
       var statusPesanan = String(row[15] || "TERKIRIM").toUpperCase().trim();
@@ -808,8 +807,8 @@ function getDashboardData() {
     var tanggal = formatAppDate(row[1]);
     var jam = formatAppTime(row[2]);
     var resi = row[4] || "-";
-    var toko = (row[5] || "Safra").toString().trim();
-    if (!toko) toko = "Safra";
+    var rawToko = String(row[5] || "").trim();
+    var toko = (!rawToko || /^[:\-\s]+$/.test(rawToko)) ? "Safra" : rawToko;
     var penerima = row[6] || "-";
     var noHp = row[7] || "-";
     var ekspedisi = row[8] || "-";

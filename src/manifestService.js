@@ -39,7 +39,7 @@ async function extractLabelDetails(filePath, metaItem = {}) {
       qty,
       resi: 'MANUAL',
       type: 'manual',
-      toko: metaItem.toko || '',
+      toko: (metaItem.toko && !/^[:\-\s]+$/.test(String(metaItem.toko).trim())) ? String(metaItem.toko).trim() : 'Safra',
       expedition: 'Manual (Kurir)',
       nominal: metaItem.nominal || 0,
       paymentMethod: metaItem.paymentMethod || 'NON-COD',
@@ -58,7 +58,7 @@ async function extractLabelDetails(filePath, metaItem = {}) {
       qty: metaItem.qty || 1,
       resi: metaItem.resi || '-',
       type: 'photo',
-      toko: metaItem.toko || '',
+      toko: (metaItem.toko && !/^[:\-\s]+$/.test(String(metaItem.toko).trim())) ? String(metaItem.toko).trim() : 'Safra',
       expedition: metaItem.expedition || 'Ekspedisi (Foto)',
       nominal: metaItem.nominal || 0,
       paymentMethod: metaItem.paymentMethod || 'NON-COD',
@@ -305,14 +305,18 @@ async function extractLabelDetails(filePath, metaItem = {}) {
 
       // Toko resolution: metaItem.toko > PENGIRIM > Safra
       let determinedToko = metaItem.toko || '';
+      if (determinedToko && /^[:\-\s]+$/.test(String(determinedToko).trim())) {
+        determinedToko = '';
+      }
       if (!determinedToko && sender) {
         if (/interfarm/i.test(sender)) determinedToko = 'Interfarm';
         else if (/safra/i.test(sender)) determinedToko = 'Safra';
         else if (/fertipro/i.test(sender)) determinedToko = 'Fertipro';
         else if (/yosa/i.test(sender)) determinedToko = 'Yosa Farm';
         else if (/utamigro/i.test(sender)) determinedToko = 'Utamigro';
-        else determinedToko = sender;
+        else determinedToko = (!sender || /^[:\-\s]+$/.test(String(sender).trim())) ? 'Safra' : sender;
       }
+      if (!determinedToko) determinedToko = 'Safra';
 
       return {
         recipient,

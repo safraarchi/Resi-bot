@@ -109,9 +109,15 @@ function parseShippingText(rawText) {
       continue;
     }
 
-    const tokoMatch = line.match(/^(?:toko|store|shop)\s*[:=]?\s*(.+)$/i);
+    const tokoMatch = line.match(/^(?:toko|store|shop)\s*[:=]?\s*(.*)$/i);
     if (tokoMatch) {
-      toko = tokoMatch[1].trim();
+      const rawToko = tokoMatch[1].trim();
+      // Jika toko kosong, ":", "-", atau hanya simbol titik dua, default ke 'Safra'
+      if (!rawToko || /^[:\-\s]+$/.test(rawToko)) {
+        toko = 'Safra';
+      } else {
+        toko = rawToko;
+      }
       readingAddress = false;
       readingKeterangan = false;
       continue;
@@ -199,12 +205,14 @@ function parseShippingText(rawText) {
   }
 
   const finalStatus = explicitStatus || 'TERKIRIM';
+  const cleanToko = (toko || '').trim();
+  const finalToko = (!cleanToko || /^[:\-\s]+$/.test(cleanToko)) ? 'Safra' : cleanToko;
 
   return {
     recipient: recipient || '-',
     address: address || '-',
     phone: phone || '-',
-    toko: toko || '',
+    toko: finalToko,
     sip: sip || config.DEFAULT_SIP || 'SAFRA',
     senderPhone: senderPhone || config.DEFAULT_HP || '0856-9733-7041',
     keterangan: keterangan || '',
