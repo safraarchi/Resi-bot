@@ -1,3 +1,4 @@
+const sharp = require('sharp');
 const Tesseract = require('tesseract.js');
 const { parsePrice, resolveStore, resolvePricing, extractPriceFromText, extractStoreFromText } = require('./productCatalogService');
 
@@ -17,15 +18,30 @@ async function getWorker() {
 }
 
 /**
- * Recognize text from an image buffer (PNG/JPG/WEBP)
+ * Recognize text from an image buffer (PNG/JPG/WEBP) with sharp preprocessing
  * @param {Buffer} imageBuffer 
  * @returns {Promise<string>} Recognized text
  */
 async function recognizeReceiptImage(imageBuffer) {
   if (!imageBuffer) return '';
   try {
+    let processedBuffer = imageBuffer;
+    try {
+      const meta = await sharp(imageBuffer).metadata();
+      // Upscale resolusi jika gambar kecil agar detail teks dan angka tabel (seperti Qty) tajam
+      const targetWidth = Math.max(1600, (meta.width || 800) * 2);
+      processedBuffer = await sharp(imageBuffer)
+        .resize({ width: targetWidth, withoutEnlargement: false })
+        .sharpen({ sigma: 1.5 })
+        .normalize()
+        .toBuffer();
+    } catch (procErr) {
+      console.warn('[OCR PREPROCESS] Gagal memproses dengan sharp, fallback ke buffer asli:', procErr.message);
+      processedBuffer = imageBuffer;
+    }
+
     const worker = await getWorker();
-    const result = await worker.recognize(imageBuffer);
+    const result = await worker.recognize(processedBuffer);
     return (result && result.data && result.data.text) ? result.data.text.trim() : '';
   } catch (err) {
     console.error('[OCR ERROR] Gagal mengenali gambar:', err.message);
@@ -49,7 +65,7 @@ function cleanLine(str) {
 function parseReceiptOcrText(ocrText, options = {}) {
   const text = (ocrText || '').trim();
   const caption = (options.caption || '').trim();
-  const combined = `${text}\n${caption}`;
+  const combined = text + '\n' + caption;
 
   let resi = '-';
   let recipient = '-';
@@ -61,14 +77,15 @@ function parseReceiptOcrText(ocrText, options = {}) {
   let nominal = options.explicitPrice || 0;
   let isCod = /COD/i.test(combined) && !/NON-COD/i.test(combined);
 
-  // 1. Detect Resi
-  const spxMatch = combined.match(/(?:SPXID|SPX)[A-Z0-9]{8,22}/i);
+  // 1. Detect Resi (SPX, J&T, Cargo, etc.)
+  const spxMatches = combined.match(/(?:SPXID|SPX)[A-Z0-9]{8,22}/gi);
   const jntMatch = combined.match(/(?:JP|JX|JY|JS|JD)[0-9]{8,15}/i);
   const cargoMatch = combined.match(/(?:300|301|302)[0-9]{9,13}/);
   const genericResi = combined.match(/(?:No\.?\s*Resi|Resi|Waybill|Tracking\s*No)\s*[:=]?\s*([A-Z0-9]{8,25})/i);
 
-  if (spxMatch) {
-    resi = spxMatch[0].toUpperCase();
+  if (spxMatches && spxMatches.length > 0) {
+    // Ambil resi SPX terpanjang & terbersih (misal SPXID06636125006A)
+    resi = spxMatches.sort((a, b) => b.length - a.length)[0].toUpperCase();
     expedition = 'Shopee (SPX)';
   } else if (jntMatch) {
     resi = jntMatch[0].toUpperCase();
@@ -89,11 +106,14 @@ function parseReceiptOcrText(ocrText, options = {}) {
 
   // 3. Detect Recipient Name
   const lines = text.split('\n').map(l => cleanLine(l)).filter(Boolean);
-  const recMatch = combined.match(/(?:Penerima|Kepada|Nama(?:\s*Lengkap)?|Customer|Consignee)\s*[:=]?\s*([^\r\n]{3,40})/i);
-  if (recMatch && !/pengirim|shopee|ekspedisi|berat|cod|produk|barang/i.test(recMatch[1])) {
-    recipient = cleanLine(recMatch[1]);
+  const recMatch = combined.match(/(?:Penerima|Kepada|Nama(?:\s*Lengkap)?|Customer|Consignee)\s*[:=]?\s*([a-zA-Z\s]{3,35})/i);
+  if (recMatch) {
+    let cleanRec = cleanLine(recMatch[1]);
+    cleanRec = cleanRec.replace(/\b(?:HOME|OFFICE|EINE|IEEE|KAB|KEC|JL|JALAN|DESA|DUSUN).*$/i, '').trim();
+    if (cleanRec.length >= 3) {
+      recipient = cleanRec;
+    }
   } else if (phone !== '-') {
-    // Look around the line containing the phone number
     const pIdx = lines.findIndex(l => l.includes(phone) || l.includes(phone.slice(3)));
     if (pIdx !== -1) {
       for (let offset of [-1, 1, -2, 2]) {
@@ -107,12 +127,78 @@ function parseReceiptOcrText(ocrText, options = {}) {
     }
   }
 
-  // 4. Detect Qty
-  const qtyMatch = combined.match(/(?:Qty|Jumlah|Pcs|Total\s*Barang)\s*[:=]?\s*(\d+)/i) ||
-                   combined.match(/(\d+)\s*(?:pcs|paket|botol|btl|jerigen|box)\b/i);
-  if (qtyMatch) {
-    const qVal = parseInt(qtyMatch[1], 10);
-    if (qVal > 0 && qVal <= 1000) qty = qVal;
+  // 4. Detect Table Rows & Qty (Shopee / Marketplace: # Nama Produk SKU Variasi Qty)
+  const tableHeaderIdx = lines.findIndex(l => /Nama\s*Produk/i.test(l) && /(?:SKU|Variasi|Qty|Qu|y)/i.test(l));
+  if (tableHeaderIdx !== -1) {
+    for (let i = tableHeaderIdx + 1; i < Math.min(lines.length, tableHeaderIdx + 5); i++) {
+      const rowLine = lines[i];
+      if (/Pesan:|SPXID|Barcode/i.test(rowLine)) break;
+
+      // Deteksi Qty di ujung baris produk (misal "... Kemasan 1 Kg 6" atau "... 6")
+      const endQtyMatch = rowLine.match(/(?:Kemasan[^\d]*\d+\s*(?:kg|gr|g|l|ml|cc))?\s*(\d{1,3})\s*[:;]?\s*$/i) ||
+                          rowLine.match(/\b(\d{1,3})\s*[:;]?\s*$/);
+      if (endQtyMatch) {
+        const qVal = parseInt(endQtyMatch[1], 10);
+        if (qVal > 0 && qVal <= 500) {
+          qty = qVal;
+        }
+      }
+
+      // Deteksi SKU dari baris tabel
+      if (sku === '-') {
+        const skuCandidates = rowLine.match(/\b([A-Z0-9_\-]{5,22})\b/g);
+        if (skuCandidates) {
+          for (const cand of skuCandidates) {
+            let upperCand = cand.toUpperCase();
+            upperCand = upperCand.replace(/I(?=KG|L|GR|PC)/gi, '1').replace(/l(?=KG|L|GR|PC)/gi, '1');
+            if (!['SHOPEE', 'VARIASI', 'INTERFARM', 'FERTIPRO', 'KEMASAN', 'BOOSTER'].includes(upperCand)) {
+              sku = upperCand;
+              break;
+            }
+          }
+        }
+      }
+
+      // Deteksi Nama Produk dari baris tabel (bukan header tabel)
+      if (product === '-' || /SKU\s*Variasi/i.test(product)) {
+        let cleanProd = rowLine.replace(/^\d+\s+/, '')
+          .replace(/\b(?:PASTASAWIT|FP-|BIANG|UG)[A-Z0-9_\-]*\b.*$/i, '')
+          .replace(/\bKemasan\s*\d+.*$/i, '')
+          .trim();
+        if (cleanProd.length > 5) {
+          product = cleanProd;
+        }
+      }
+    }
+  }
+
+  // 5. Fallback Qty jika tidak terdeteksi dari tabel
+  if (qty === 1) {
+    const qtyMatch = combined.match(/(?:Qty|Jumlah|Pcs|Total\s*Barang)\s*[:=]?\s*(\d+)/i) ||
+                     combined.match(/(\d+)\s*(?:pcs|paket|botol|btl|jerigen|box)\b/i);
+    if (qtyMatch) {
+      const qVal = parseInt(qtyMatch[1], 10);
+      if (qVal > 0 && qVal <= 500) qty = qVal;
+    }
+  }
+
+  // 6. Cross-verify berat label (contoh: Berat: 6600 gr dengan Kemasan 1 Kg -> 6 pcs)
+  if (qty === 1) {
+    const beratMatch = combined.match(/Berat\s*[:=]?\s*(\d+)\s*(?:gr|gram)/i);
+    if (beratMatch) {
+      const totalGr = parseInt(beratMatch[1], 10);
+      const kemasanMatch = combined.match(/Kemasan\s*(\d+(?:[\.,]\d+)?)\s*(?:kg|liter|l|gr|gram)/i);
+      if (kemasanMatch) {
+        let unitGr = parseFloat(kemasanMatch[1].replace(',', '.'));
+        if (/kg|liter|l/i.test(kemasanMatch[0])) unitGr *= 1000;
+        if (unitGr >= 100) {
+          const estQty = Math.round(totalGr / unitGr);
+          if (estQty >= 2 && estQty <= 100) {
+            qty = estQty;
+          }
+        }
+      }
+    }
   }
 
   // Detect bosCOD format & sender
@@ -127,7 +213,7 @@ function parseReceiptOcrText(ocrText, options = {}) {
     sender = cleanLine(pengirimMatch[1]);
   }
 
-  // 5. Detect Nominal / COD (Prioritaskan harga pada label resi bosCOD / COD)
+  // 7. Detect Nominal / COD
   if (nominal === 0) {
     const codMatch = combined.match(/(?:COD|Nilai\s*COD|Total\s*COD|Tagihan|Cargo\s*\|\s*COD)[\s\|:=]*(?:Rp\.?\s*)?([0-9\.\,]+)/i);
     if (codMatch) {
@@ -152,23 +238,16 @@ function parseReceiptOcrText(ocrText, options = {}) {
     nominal = extractPriceFromText(caption);
   }
 
-  // 6. Detect SKU & Product from text
-  const skuMatch = combined.match(/(?:SKU|Kode\s*Barang|Order\s*ID)\s*[:=]?\s*([A-Z0-9_\-]{4,25})/i);
-  if (skuMatch) {
-    sku = skuMatch[1].trim();
-  }
-  if (isBoscod && /^\d{12,20}$/.test(sku)) {
-    sku = '-';
+  // 8. Normalisasi SKU (e.g. PASTASAWITIKG -> PASTASAWIT1KG)
+  if (sku !== '-') {
+    sku = sku.replace(/I(?=KG|L|GR|PC)/gi, '1').replace(/l(?=KG|L|GR|PC)/gi, '1');
   }
 
-  const prodMatch = combined.match(/(?:Nama\s*Produk|Produk|Barang|Isi|Item)\s*[:=]?\s*([^\n\r]+)/i);
-  if (prodMatch) {
-    product = cleanLine(prodMatch[1]);
-  } else {
-    // Find candidate product line
+  // Fallback Product name jika masih kosong
+  if (product === '-' || /SKU\s*Variasi/i.test(product)) {
     for (const l of lines) {
       if (/booster|pupuk|sawit|fertipro|yosa|paket|liter|jerigen|pasta|humat/i.test(l) &&
-          !/pengirim|penerima|alamat|jalan|bank|cod/i.test(l)) {
+          !/pengirim|penerima|alamat|jalan|bank|cod|sku/i.test(l)) {
         product = l;
         break;
       }
@@ -178,7 +257,7 @@ function parseReceiptOcrText(ocrText, options = {}) {
   const explicitStoreRaw = options.explicitStore || extractStoreFromText(combined) || '';
   const cleanExplicitStore = (explicitStoreRaw && !/^[:\-\s]+$/.test(String(explicitStoreRaw).trim())) ? String(explicitStoreRaw).trim() : '';
 
-  // 7. Resolve with Master Product Catalog (exact SKU, fuzzy title, store & standard price)
+  // 9. Resolve with Master Product Catalog
   const resolved = resolvePricing({
     sku: (isBoscod || sku === '-') ? '-' : sku,
     product: product !== '-' ? product : '',
@@ -199,7 +278,7 @@ function parseReceiptOcrText(ocrText, options = {}) {
   }
   const finalSku = (resolved.sku && resolved.sku !== '-') ? resolved.sku : (sku !== '-' ? sku : '-');
   const finalProduct = (resolved.productName && resolved.productName !== 'Produk') ? resolved.productName : (product !== '-' ? product : 'Paket');
-  const finalNominal = (resolved.totalNominal > 0) ? resolved.totalNominal : nominal;
+  const finalNominal = (resolved.totalNominal > 0) ? resolved.totalNominal : (resolved.unitPrice > 0 ? resolved.unitPrice * qty : nominal);
 
   return {
     resi: resi !== '-' ? resi : '-',

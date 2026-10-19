@@ -275,8 +275,12 @@ function updateOrderPrice(payload) {
     var isReturFinal = (finalStatus.toUpperCase().indexOf("RETUR") !== -1 || finalStatus.toUpperCase().indexOf("BATAL") !== -1);
     if (isReturFinal) finalStatus = "RETUR";
 
-    var qty = cleanNumber(values[foundIndex - 1][11]) || 1;
-    var unitPrice = Math.round(newPrice / qty);
+    var qty = (payload.newQty !== undefined || payload.qty !== undefined) 
+      ? (cleanNumber(payload.newQty || payload.qty) || 1)
+      : (cleanNumber(values[foundIndex - 1][11]) || 1);
+    var unitPrice = (payload.unitPrice && cleanNumber(payload.unitPrice) > 0) 
+      ? cleanNumber(payload.unitPrice) 
+      : (qty > 0 ? Math.round(newPrice / qty) : newPrice);
     var totalNominal = newPrice;
     var rawNewToko = String(payload.toko || payload.newToko || "").trim();
     var newToko = (payload.toko !== undefined || payload.newToko !== undefined) ? ((!rawNewToko || /^[:\-\s]+$/.test(rawNewToko)) ? "Safra" : rawNewToko) : "";
@@ -299,8 +303,11 @@ function updateOrderPrice(payload) {
     if (payload.newSku) {
       orderSheet.getRange(foundIndex, 10).setValue(payload.newSku);
     }
-    if (payload.newProduct) {
-      orderSheet.getRange(foundIndex, 11).setValue(payload.newProduct);
+    if (payload.newProduct || payload.product) {
+      orderSheet.getRange(foundIndex, 11).setValue(payload.newProduct || payload.product);
+    }
+    if (payload.newQty !== undefined || payload.qty !== undefined) {
+      orderSheet.getRange(foundIndex, 12).setValue(qty);
     }
 
     orderSheet.getRange(foundIndex, 13).setValue(unitPrice).setNumberFormat('"Rp"#,##0');
