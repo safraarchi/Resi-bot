@@ -326,6 +326,51 @@ const mockManifestList = [
     console.log('  ✅ [PASS] Resi 201831121275 (Suparlan) -> Harga Rp 395.000 dari label & default Paket 1 Ha (bukan 3 Ha)');
   }
 
+  // Case E: Resi 201830492960 (Syamsul Arifin)
+  const fileSyamsul = path.join(__dirname, 'storage', 'archive', '2026-10-17', 'batch_2026-10-17_14-07', '1792121801977_201830492960.pdf');
+  if (fs.existsSync(fileSyamsul)) {
+    const detailsSyamsul = await manifestService.extractLabelDetails(fileSyamsul);
+    assert.strictEqual(detailsSyamsul.resi, '201830492960');
+    assert.strictEqual(detailsSyamsul.nominal, 395000, 'Nominal Syamsul harus Rp 395.000');
+    const pricingSyamsul = productCatalogService.resolvePricing({
+      nominal: detailsSyamsul.nominal,
+      product: detailsSyamsul.product,
+      qty: detailsSyamsul.qty,
+      sender: detailsSyamsul.sender,
+      toko: detailsSyamsul.toko,
+      isBoscod: true,
+    });
+    assert.strictEqual(pricingSyamsul.totalNominal, 395000);
+    assert.strictEqual(pricingSyamsul.sku, 'FP-PAKET-1HA');
+    console.log('  ✅ [PASS] Resi 201830492960 (Syamsul Arifin) -> Harga Rp 395.000 & SKU FP-PAKET-1HA');
+  }
+
+  // Case F: Aturan Fertipro 3 Ha: "jadi misal ada yang beli 3 ha gitu barti harganya di kali 3 dari 1 ha gitu"
+  const pricing3HaNoPrice = productCatalogService.resolvePricing({
+    nominal: 0,
+    product: 'Paket Fertipro Sawit 3 Ha',
+    qty: 1,
+    toko: 'Fertipro',
+    isBoscod: true,
+  });
+  assert.strictEqual(pricing3HaNoPrice.qty, 3, 'Qty harus 3');
+  assert.strictEqual(pricing3HaNoPrice.unitPrice, 395000, 'Unit price harus 395.000 (1 Ha)');
+  assert.strictEqual(pricing3HaNoPrice.totalNominal, 1185000, 'Total harus 3 * 395.000 = 1.185.000');
+  assert.strictEqual(pricing3HaNoPrice.sku, 'FP-PAKET-1HA', 'SKU tetap FP-PAKET-1HA (tidak ada bundle 3ha)');
+  console.log('  ✅ [PASS] Fertipro 3 Ha tanpa harga di label -> 3 x Rp 395.000 = Rp 1.185.000 (SKU: FP-PAKET-1HA)');
+
+  // Case G: Prioritas Label Resi: "tapi kita prioristaskan dlu harga di bos cod itu berapa harganya dulu"
+  const pricing3HaWithLabelPrice = productCatalogService.resolvePricing({
+    nominal: 395000, // Label hanya tertera 395.000
+    product: 'Paket Fertipro Sawit 3 Ha',
+    qty: 1,
+    toko: 'Fertipro',
+    isBoscod: true,
+  });
+  assert.strictEqual(pricing3HaWithLabelPrice.totalNominal, 395000, 'Harus prioritas harga label Rp 395.000!');
+  assert.strictEqual(pricing3HaWithLabelPrice.sku, 'FP-PAKET-1HA');
+  console.log('  ✅ [PASS] Prioritas Label bosCOD: Walau tertulis 3 Ha tapi label Rp 395.000 -> Total tetap Rp 395.000');
+
   // Bersihkan pending buffer dari test
   fs.writeFileSync(path.join(__dirname, 'storage', 'pending_finance.json'), '[]', 'utf8');
 

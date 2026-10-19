@@ -454,13 +454,32 @@ function resolvePricing(item = {}) {
     });
 
     if (explicitNominal > 0) {
-      const unitPrice = Math.round(explicitNominal / qty);
+      let finalQty = qty;
+      let finalUnitPrice = Math.round(explicitNominal / qty);
+      let finalSku = (item.sku && item.sku !== '-' && !/^\d{12,20}$/.test(item.sku)) ? item.sku : '-';
+      let finalProductName = item.product || item.title || 'Paket bosCOD';
+
+      // Khusus Fertipro: Prioritaskan harga label, dan tetapkan paket 1 Ha atau Jumbo
+      const pLower = (item.product || item.title || '').toLowerCase();
+      if (toko === 'Fertipro' || pLower.includes('fertipro')) {
+        const isJumbo = pLower.includes('25l') || pLower.includes('25 liter') || pLower.includes('jumbo') || pLower.includes('5ha') || explicitNominal >= 1975000;
+        if (isJumbo) {
+          finalSku = 'FP-JUMBO-25L';
+        } else {
+          finalSku = 'FP-PAKET-1HA';
+          if (explicitNominal % 395000 === 0) {
+            finalQty = Math.max(1, explicitNominal / 395000);
+            finalUnitPrice = 395000;
+          }
+        }
+      }
+
       return {
         toko,
-        sku: (item.sku && item.sku !== '-' && !/^\d{12,20}$/.test(item.sku)) ? item.sku : '-',
-        productName: item.product || item.title || 'Paket bosCOD',
-        qty,
-        unitPrice,
+        sku: finalSku,
+        productName: finalProductName,
+        qty: finalQty,
+        unitPrice: finalUnitPrice,
         totalNominal: explicitNominal,
         paymentMethod: isCod ? 'COD' : (item.paymentMethod || 'COD'),
         paymentStatus: item.paymentStatus || 'TERKIRIM',
@@ -503,33 +522,53 @@ function resolvePricing(item = {}) {
     }
 
     // 2) Jika toko Fertipro / pengirim Fertipro atau produk mengandung "FERTIPRO":
-    // User instruction: "dan misal itu tidak ada harganya harusnya dia mendetksi paket 1 bukan 3ha"
+    // User instruction: "paket hanya 1 ha saja dan jumbo sisanya sudah sya hapus jadi misal ada yang beli 3 ha gitu barti harganya di kali 3 dari 1 ha gitu, tapi kita prioristaskan dlu harga di bos cod itu berapa harganya dulu"
     const pLower = (item.product || item.title || '').toLowerCase();
     if (toko === 'Fertipro' || pLower.includes('fertipro')) {
-      const is3Ha = pLower.includes('3ha') || pLower.includes('3 ha') || /\b3\s*(?:ha|hektar|paket)\b/i.test(pLower);
-      const is2Ha = pLower.includes('2ha') || pLower.includes('2 ha') || /\b2\s*(?:ha|hektar|paket)\b/i.test(pLower);
-      const is4Ha = pLower.includes('4ha') || pLower.includes('4 ha') || /\b4\s*(?:ha|hektar|paket)\b/i.test(pLower);
       const isJumbo = pLower.includes('25l') || pLower.includes('25 liter') || pLower.includes('jumbo') || pLower.includes('5ha');
-
-      const targetSku = is3Ha ? 'FP-PAKET-3HA' : (is2Ha ? 'FP-PAKET-2HA' : (is4Ha ? 'FP-PAKET-4HA' : (isJumbo ? 'FP-JUMBO-25L' : 'FP-PAKET-1HA')));
-      const matched = catalog.find(p => p.sku === targetSku);
-      if (matched) {
-        const total = matched.hargaStandar * qty;
+      if (isJumbo) {
+        const matched = catalog.find(p => p.sku === 'FP-JUMBO-25L');
+        const unit = matched ? matched.hargaStandar : 1975000;
         return {
           toko: 'Fertipro',
-          sku: matched.sku,
-          productName: matched.nama,
-          qty,
-          unitPrice: matched.hargaStandar,
-          totalNominal: total,
+          sku: 'FP-JUMBO-25L',
+          productName: matched ? matched.nama : 'Paket Jumbo 25 Liter Fertipro Sawit 5 Ha (POC 25L + 5 Bio Humat 1Kg)',
+          qty: qty,
+          unitPrice: unit,
+          totalNominal: unit * qty,
           paymentMethod: isCod ? 'COD' : 'NON-COD',
           paymentStatus: 'TERKIRIM',
           priceStatus: 'HARGA OK',
-          priceSource: 'FERTIPRO_DEFAULT_1HA',
+          priceSource: 'FERTIPRO_DEFAULT_JUMBO',
           matchedCatalogItem: matched,
-          notes: item.notes || item.keterangan || (is3Ha ? 'Paket 3 Ha' : (is2Ha ? 'Paket 2 Ha' : 'Paket Standar 1 Ha')),
+          notes: item.notes || item.keterangan || 'Paket Jumbo 25L',
         };
       }
+
+      // Hitung kelipatan Hektar jika disebutkan di judul/keterangan (misal beli 3 ha -> 3 x 395.000)
+      let fertQty = qty > 1 ? qty : 1;
+      const haMatch = pLower.match(/\b([2-9])\s*(?:ha|hektar|paket)\b/i);
+      if (haMatch) {
+        fertQty = parseInt(haMatch[1], 10);
+      }
+
+      const matched = catalog.find(p => p.sku === 'FP-PAKET-1HA');
+      const unit = matched ? matched.hargaStandar : 395000;
+      const total = unit * fertQty;
+      return {
+        toko: 'Fertipro',
+        sku: 'FP-PAKET-1HA',
+        productName: matched ? matched.nama : 'Paket Fertipro Sawit 1 Ha / Paket Standar (POC 5L + Bio Humat Pasta 1Kg)',
+        qty: fertQty,
+        unitPrice: unit,
+        totalNominal: total,
+        paymentMethod: isCod ? 'COD' : 'NON-COD',
+        paymentStatus: 'TERKIRIM',
+        priceStatus: 'HARGA OK',
+        priceSource: 'FERTIPRO_DEFAULT_1HA',
+        matchedCatalogItem: matched,
+        notes: item.notes || item.keterangan || (fertQty > 1 ? `Paket ${fertQty} Ha (${fertQty}x 1 Ha)` : 'Paket Standar 1 Ha'),
+      };
     }
 
     // 3) Jika tidak ada harga dan bukan Fertipro, biarkan Rp 0 (hindari salah tebak)
@@ -551,7 +590,10 @@ function resolvePricing(item = {}) {
 
   // Tier 1: Explicit Nominal (from COD label or user input)
   if (explicitNominal > 0) {
-    const unitPrice = Math.round(explicitNominal / qty);
+    let finalQty = qty;
+    let finalUnitPrice = Math.round(explicitNominal / qty);
+    let finalSku = item.sku || '-';
+
     const toko = resolveStore({
       toko: item.toko,
       sku: item.sku,
@@ -561,12 +603,26 @@ function resolvePricing(item = {}) {
       sender: item.sender || item.sip,
     });
 
+    const pLower = (item.product || item.title || '').toLowerCase();
+    if (toko === 'Fertipro' || pLower.includes('fertipro')) {
+      const isJumbo = pLower.includes('25l') || pLower.includes('25 liter') || pLower.includes('jumbo') || pLower.includes('5ha') || explicitNominal >= 1975000;
+      if (isJumbo) {
+        finalSku = 'FP-JUMBO-25L';
+      } else {
+        finalSku = 'FP-PAKET-1HA';
+        if (explicitNominal % 395000 === 0) {
+          finalQty = Math.max(1, explicitNominal / 395000);
+          finalUnitPrice = 395000;
+        }
+      }
+    }
+
     return {
       toko,
-      sku: item.sku || '-',
+      sku: finalSku,
       productName: item.product || item.title || 'Produk',
-      qty,
-      unitPrice,
+      qty: finalQty,
+      unitPrice: finalUnitPrice,
       totalNominal: explicitNominal,
       paymentMethod: isCod ? 'COD' : (item.paymentMethod || 'TRANSFER'),
       paymentStatus: 'TERKIRIM',
