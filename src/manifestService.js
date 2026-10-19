@@ -233,13 +233,19 @@ async function extractLabelDetails(filePath, metaItem = {}) {
     }
 
     // 3. J&T Cargo / bosCOD format
-    if (fullText.includes('PENERIMA :') || fullText.includes('No. Resi:')) {
+    if (fullText.includes('PENERIMA :') || fullText.includes('Cargo') || fullText.includes('ISI:') || (fullText.includes('No. Resi:') && !fullText.includes('Nama Produk'))) {
       const resiMatch = fullText.match(/No\.\s*Resi:\s*([A-Z0-9]+)/i);
       if (resiMatch) resi = resiMatch[1];
 
       const penIdx = items.findIndex(s => s.includes('PENERIMA'));
       if (penIdx !== -1 && items[penIdx + 1]) {
         recipient = items[penIdx + 1].trim();
+      }
+
+      let sender = '';
+      const pengIdx = items.findIndex(s => s.includes('PENGIRIM'));
+      if (pengIdx !== -1 && items[pengIdx + 1]) {
+        sender = items[pengIdx + 1].trim();
       }
 
       const isiIdx = items.findIndex(s => s.trim() === 'ISI:');
@@ -254,29 +260,72 @@ async function extractLabelDetails(filePath, metaItem = {}) {
       }
 
       const orderIdMatch = fullText.match(/Order ID:\s*([A-Z0-9]+)/i);
-      if (orderIdMatch) sku = orderIdMatch[1];
+      const orderId = orderIdMatch ? orderIdMatch[1] : '';
 
+      // Ekstraksi Nominal Langsung dari Resi bosCOD (Prioritas Tertinggi)
       let jntNominal = 0;
       let isJntCod = /COD/i.test(fullText) && !/NON-COD/i.test(fullText);
-      const jntCodMatch = fullText.match(/(?:COD\s*[:=]?\s*|Nilai\s*COD\s*[:=]?\s*)(?:Rp\.?\s*)?([0-9\.\,]+)/i);
-      if (jntCodMatch) {
-        jntNominal = parsePrice(jntCodMatch[1]);
-        if (jntNominal > 0) isJntCod = true;
+
+      // 1. Cek item setelah token 'COD' di array items (e.g. ['COD', 'Rp 789.957'])
+      const codIdx = items.findIndex(s => s.trim().toUpperCase() === 'COD' || s.trim().toUpperCase().includes('COD'));
+      if (codIdx !== -1) {
+        for (let off = 1; off <= 3; off++) {
+          const nextItem = items[codIdx + off];
+          if (nextItem && /Rp\s*[0-9\.\,]+/i.test(nextItem)) {
+            jntNominal = parsePrice(nextItem);
+            if (jntNominal > 0) {
+              isJntCod = true;
+              break;
+            }
+          }
+        }
+      }
+
+      // 2. Regex pada fullText dengan separator pipe | atau : atau spasi
+      if (jntNominal === 0) {
+        const jntCodMatch = fullText.match(/(?:COD|Nilai\s*COD|Total\s*COD|Cargo\s*\|\s*COD)[\s\|:=]*(?:Rp\.?\s*)?([0-9\.\,]+)/i);
+        if (jntCodMatch) {
+          jntNominal = parsePrice(jntCodMatch[1]);
+          if (jntNominal > 0) isJntCod = true;
+        }
+      }
+
+      // 3. Fallback scan format rupiah "Rp xxx.xxx" pada resi
+      if (jntNominal === 0) {
+        const anyRpMatch = fullText.match(/Rp\s*([0-9]{1,3}(?:\.[0-9]{3})+|[0-9]{4,8})/i);
+        if (anyRpMatch) {
+          jntNominal = parsePrice(anyRpMatch[1]);
+          if (jntNominal > 0) isJntCod = true;
+        }
       }
 
       let jntPhone = '-';
       const jPhoneIdx = items.findIndex(s => /^(?:628|08)\d{8,13}$/.test(s.trim()));
       if (jPhoneIdx !== -1) jntPhone = items[jPhoneIdx].trim();
 
+      // Toko resolution: metaItem.toko > PENGIRIM > Safra
+      let determinedToko = metaItem.toko || '';
+      if (!determinedToko && sender) {
+        if (/interfarm/i.test(sender)) determinedToko = 'Interfarm';
+        else if (/safra/i.test(sender)) determinedToko = 'Safra';
+        else if (/fertipro/i.test(sender)) determinedToko = 'Fertipro';
+        else if (/yosa/i.test(sender)) determinedToko = 'Yosa Farm';
+        else if (/utamigro/i.test(sender)) determinedToko = 'Utamigro';
+        else determinedToko = sender;
+      }
+
       return {
         recipient,
         phone: jntPhone,
         product,
-        sku,
+        sku: '-', // Jangan gunakan Order ID internal sebagai SKU
+        orderId: orderId || '-',
         qty,
         resi,
         type: 'jnt',
-        toko: metaItem.toko || '',
+        isBoscod: true,
+        sender: sender || '-',
+        toko: determinedToko,
         expedition: 'J&T Cargo (bosCOD)',
         nominal: (metaItem.nominal && metaItem.nominal > 0) ? metaItem.nominal : jntNominal,
         paymentMethod: isJntCod ? 'COD' : 'NON-COD',

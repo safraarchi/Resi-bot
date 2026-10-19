@@ -351,7 +351,17 @@ function resolveStore(params = {}) {
     return t;
   }
 
-  // Rule 4: SKU heuristics
+  // Rule 4: Sender matching (PENGIRIM on label)
+  if (sender) {
+    const s = String(sender).toLowerCase();
+    if (s.includes('interfarm')) return 'Interfarm';
+    if (s.includes('utamigro')) return 'Utamigro';
+    if (s.includes('safra')) return 'Safra';
+    if (s.includes('fertipro')) return 'Fertipro';
+    if (s.includes('yosa')) return 'Yosa Farm';
+  }
+
+  // Rule 5: SKU heuristics
   if (sku) {
     const s = String(sku).toUpperCase();
     if (s.startsWith('UG')) return 'Utamigro';
@@ -359,7 +369,7 @@ function resolveStore(params = {}) {
     if (s.startsWith('SMH') || s.startsWith('MANUAL')) return 'Safra';
   }
 
-  // Rule 5: Sender or Default (exclude Telegram handles like @username or Staff)
+  // Rule 6: Sender or Default (exclude Telegram handles like @username or Staff)
   if (sender && sender !== 'SAFRA' && sender !== 'Sistem' && sender !== 'Staff' && !sender.startsWith('@')) {
     return sender;
   }
@@ -424,6 +434,88 @@ function resolvePricing(item = {}) {
       priceSource: 'UNRESOLVED',
       matchedCatalogItem: null,
       notes: 'Resi Manual (Belum ada harga)',
+    };
+  }
+
+  const isBoscod = Boolean(item.isBoscod) || item.type === 'boscod' || item.type === 'jnt' || (item.expedition && item.expedition.toLowerCase().includes('boscod'));
+
+  // Khusus Resi bosCOD (J&T Cargo / bosCOD):
+  // Prioritaskan harga yang tertera di resi! Tidak perlu mencari di database katalog.
+  // 1) Jika ada harga di resi (explicitNominal > 0), gunakan harga tersebut sebagai total nominal.
+  // 2) Jika tidak ada harga di resi, cari exact SKU jika ada. Jika tidak ada exact SKU, tandai butuh input harga (jangan tebak database).
+  if (isBoscod) {
+    const toko = resolveStore({
+      toko: item.toko,
+      sku: (item.sku && !/^\d{12,20}$/.test(item.sku)) ? item.sku : '-',
+      product: item.product || item.title,
+      rawText: item.rawText,
+      keterangan: item.keterangan || item.notes,
+      sender: item.sender || item.sip,
+    });
+
+    if (explicitNominal > 0) {
+      const unitPrice = Math.round(explicitNominal / qty);
+      return {
+        toko,
+        sku: (item.sku && item.sku !== '-' && !/^\d{12,20}$/.test(item.sku)) ? item.sku : '-',
+        productName: item.product || item.title || 'Paket bosCOD',
+        qty,
+        unitPrice,
+        totalNominal: explicitNominal,
+        paymentMethod: isCod ? 'COD' : (item.paymentMethod || 'COD'),
+        paymentStatus: item.paymentStatus || 'TERKIRIM',
+        priceStatus: 'HARGA OK',
+        priceSource: 'RESI_BOSCOD',
+        matchedCatalogItem: null,
+        notes: item.notes || item.keterangan || (item.orderId ? `Order ID: ${item.orderId}` : 'bosCOD Label'),
+      };
+    }
+
+    // Jika pada resi bosCOD belum terdeteksi harga, periksa apakah ada exact SKU di katalog
+    const catalog = getMasterProducts();
+    const searchSku = (item.sku || '').trim();
+    const cleanSearchSku = normalizeText(searchSku).replace(/\s+/g, '');
+    if (cleanSearchSku && cleanSearchSku !== '-' && !/^\d{12,20}$/.test(cleanSearchSku)) {
+      const matched = catalog.find(p => p.cleanSku === cleanSearchSku || p.sku.toLowerCase() === searchSku.toLowerCase());
+      if (matched && matched.hargaStandar > 0) {
+        return {
+          toko: resolveStore({
+            toko: item.toko || matched.toko,
+            sku: matched.sku,
+            product: matched.nama || item.product,
+            rawText: item.rawText,
+            keterangan: item.keterangan || item.notes,
+            sender: item.sender || item.sip,
+          }),
+          sku: matched.sku,
+          productName: matched.nama || item.product,
+          qty,
+          unitPrice: matched.hargaStandar,
+          totalNominal: matched.hargaStandar * qty,
+          paymentMethod: isCod ? 'COD' : 'NON-COD',
+          paymentStatus: 'TERKIRIM',
+          priceStatus: 'HARGA OK',
+          priceSource: 'MASTER_CSV_SKU',
+          matchedCatalogItem: matched,
+          notes: item.notes || item.keterangan || '-',
+        };
+      }
+    }
+
+    // Jika tidak ada harga dan tidak ada exact SKU, biarkan Rp 0 (hindari salah tebak Fertipro)
+    return {
+      toko,
+      sku: (item.sku && item.sku !== '-' && !/^\d{12,20}$/.test(item.sku)) ? item.sku : '-',
+      productName: item.product || item.title || 'Paket bosCOD',
+      qty,
+      unitPrice: 0,
+      totalNominal: 0,
+      paymentMethod: isCod ? 'COD' : (item.paymentMethod || 'COD'),
+      paymentStatus: item.paymentStatus || 'TERKIRIM',
+      priceStatus: '⚠️ PERLU INPUT HARGA',
+      priceSource: 'UNRESOLVED_BOSCOD',
+      matchedCatalogItem: null,
+      notes: 'Resi bosCOD (Perlu input harga)',
     };
   }
 

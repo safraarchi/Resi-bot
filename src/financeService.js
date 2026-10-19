@@ -109,6 +109,7 @@ async function recordBatchTransactions(manifestList, batchId, customTimestamp = 
     const finalNominalInput = (item.nominal && item.nominal > 0) ? item.nominal : (d.nominal || 0);
     const finalTokoInput = item.toko || d.toko || '';
     const isManual = item.type === 'manual' || d.type === 'manual' || (item.fileName && item.fileName.includes('text_resi'));
+    const isBoscod = Boolean(item.isBoscod || d.isBoscod || item.type === 'jnt' || d.type === 'jnt' || (d.expedition && d.expedition.includes('bosCOD')) || (item.expedition && item.expedition.includes('bosCOD')));
 
     // Resolve price and store from catalog or explicit input
     const pricing = resolvePricing({
@@ -121,10 +122,12 @@ async function recordBatchTransactions(manifestList, batchId, customTimestamp = 
       isCod: d.paymentMethod === 'COD',
       notes: item.keterangan || d.product,
       toko: finalTokoInput,
-      sender: item.senderName || item.sip,
+      sender: item.senderName || item.sip || d.sender,
       rawText: item.rawText,
       isManual: isManual,
-      type: isManual ? 'manual' : (item.type || d.type),
+      isBoscod: isBoscod,
+      type: isManual ? 'manual' : (isBoscod ? 'boscod' : (item.type || d.type)),
+      expedition: d.expedition || item.expedition,
     });
 
     const totalNominal = pricing.totalNominal;

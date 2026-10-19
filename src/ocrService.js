@@ -115,11 +115,33 @@ function parseReceiptOcrText(ocrText, options = {}) {
     if (qVal > 0 && qVal <= 1000) qty = qVal;
   }
 
-  // 5. Detect Nominal / COD
+  // Detect bosCOD format & sender
+  const isBoscod = /bosCOD|boscod|cargo/i.test(combined) || (combined.includes('PENERIMA') && combined.includes('PENGIRIM'));
+  if (isBoscod) {
+    expedition = 'J&T Cargo (bosCOD)';
+  }
+
+  let sender = '';
+  const pengirimMatch = combined.match(/(?:PENGIRIM|Pengirim|Dari)\s*[:=]?\s*([^\r\n]{3,35})/i);
+  if (pengirimMatch && !/penerima|alamat|jalan|resi|isi|qty|cod/i.test(pengirimMatch[1])) {
+    sender = cleanLine(pengirimMatch[1]);
+  }
+
+  // 5. Detect Nominal / COD (Prioritaskan harga pada label resi bosCOD / COD)
   if (nominal === 0) {
-    const codMatch = combined.match(/(?:COD|Nilai\s*COD|Total\s*COD|Tagihan)\s*[:=]?\s*(?:Rp\.?\s*)?([0-9\.\,]+)/i);
+    const codMatch = combined.match(/(?:COD|Nilai\s*COD|Total\s*COD|Tagihan|Cargo\s*\|\s*COD)[\s\|:=]*(?:Rp\.?\s*)?([0-9\.\,]+)/i);
     if (codMatch) {
       const p = parsePrice(codMatch[1]);
+      if (p > 0) {
+        nominal = p;
+        isCod = true;
+      }
+    }
+  }
+  if (nominal === 0) {
+    const anyRpMatch = combined.match(/Rp\s*([0-9]{1,3}(?:\.[0-9]{3})+|[0-9]{4,8})/i);
+    if (anyRpMatch) {
+      const p = parsePrice(anyRpMatch[1]);
       if (p > 0) {
         nominal = p;
         isCod = true;
@@ -134,6 +156,9 @@ function parseReceiptOcrText(ocrText, options = {}) {
   const skuMatch = combined.match(/(?:SKU|Kode\s*Barang|Order\s*ID)\s*[:=]?\s*([A-Z0-9_\-]{4,25})/i);
   if (skuMatch) {
     sku = skuMatch[1].trim();
+  }
+  if (isBoscod && /^\d{12,20}$/.test(sku)) {
+    sku = '-';
   }
 
   const prodMatch = combined.match(/(?:Nama\s*Produk|Produk|Barang|Isi|Item)\s*[:=]?\s*([^\n\r]+)/i);
@@ -152,14 +177,16 @@ function parseReceiptOcrText(ocrText, options = {}) {
 
   // 7. Resolve with Master Product Catalog (exact SKU, fuzzy title, store & standard price)
   const resolved = resolvePricing({
-    sku: sku !== '-' ? sku : '',
+    sku: (isBoscod || sku === '-') ? '-' : sku,
     product: product !== '-' ? product : '',
     title: product !== '-' ? product : options.fileName || '',
     rawText: combined,
     nominal: nominal,
     qty: qty,
     toko: options.explicitStore || extractStoreFromText(combined) || '',
+    sender: sender,
     isCod: isCod,
+    isBoscod: isBoscod,
     isManual: false,
   });
 

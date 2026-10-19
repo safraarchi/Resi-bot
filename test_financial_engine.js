@@ -238,6 +238,61 @@ const mockManifestList = [
   console.log('  ✅ [PASS] OCR Foto Resi berhasil mendeteksi SKU, Qty, Resi, Toko & Harga secara otomatis');
   console.log('  ✅ [PASS] Status order berhasil distandarisasi ke "TERKIRIM" (Tidak ada lagi "MENUNGGU CAIR")');
 
+  // ------------------------------------------------------------------
+  // 7. Test Khusus Resi bosCOD: Prioritaskan Harga Resi & Anti-Salah Toko
+  // ------------------------------------------------------------------
+  console.log('\n▶ Test 7: Pengujian Khusus Resi bosCOD (Prioritas Harga Resi & Anti-Salah Toko)...');
+  const manifestService = require('./src/manifestService');
+
+  // Case A: Sample/2.pdf (bosCOD Darwin - Paket Pasta 2 pcs, COD Rp 789.957, Pengirim: Interfarm)
+  const boscodDetails1 = await manifestService.extractLabelDetails(path.join(__dirname, 'Sample', '2.pdf'));
+  assert.strictEqual(boscodDetails1.nominal, 789957, 'Nominal harus Rp 789.957 langsung dari resi bosCOD');
+  assert.strictEqual(boscodDetails1.toko, 'Interfarm', 'Toko harus Interfarm (dari Pengirim), bukan Fertipro');
+  assert.strictEqual(boscodDetails1.isBoscod, true);
+
+  const pricing1 = productCatalogService.resolvePricing({
+    nominal: boscodDetails1.nominal,
+    product: boscodDetails1.product,
+    qty: boscodDetails1.qty,
+    sender: boscodDetails1.sender,
+    toko: boscodDetails1.toko,
+    isBoscod: true,
+  });
+  assert.strictEqual(pricing1.totalNominal, 789957, 'Total omzet harus Rp 789.957 dari label resi, bukan database');
+  assert.strictEqual(pricing1.toko, 'Interfarm', 'Toko harus Interfarm, BUKAN Fertipro!');
+  assert.strictEqual(pricing1.priceSource, 'RESI_BOSCOD');
+  console.log('  ✅ [PASS] bosCOD Darwin -> Memakai harga resi (Rp 789.957) & Toko Interfarm (Bukan Fertipro)');
+
+  // Case B: Sample/conth/4.pdf (bosCOD Halbert - PAKET PASTA (FREE POC 5 L), COD Rp 1.185.000, Pengirim: Safra)
+  const boscodDetails2 = await manifestService.extractLabelDetails(path.join(__dirname, 'Sample', 'conth', '4.pdf'));
+  assert.strictEqual(boscodDetails2.nominal, 1185000, 'Nominal harus Rp 1.185.000 langsung dari resi bosCOD');
+  assert.strictEqual(boscodDetails2.toko, 'Safra', 'Toko harus Safra (dari Pengirim), bukan Fertipro');
+
+  const pricing2 = productCatalogService.resolvePricing({
+    nominal: boscodDetails2.nominal,
+    product: boscodDetails2.product,
+    qty: boscodDetails2.qty,
+    sender: boscodDetails2.sender,
+    toko: boscodDetails2.toko,
+    isBoscod: true,
+  });
+  assert.strictEqual(pricing2.totalNominal, 1185000);
+  assert.strictEqual(pricing2.toko, 'Safra', 'Toko harus Safra, BUKAN Fertipro!');
+  console.log('  ✅ [PASS] bosCOD Halbert -> Memakai harga resi (Rp 1.185.000) & Toko Safra (Bukan Fertipro)');
+
+  // Case C: bosCOD tanpa harga di label -> Tetap Rp 0 dan butuh input (TIDAK BOLEH tebak database jadi Fertipro)
+  const boscodNoPrice = productCatalogService.resolvePricing({
+    isBoscod: true,
+    product: 'Paket Pasta (Free POC 5L)',
+    nominal: 0,
+    qty: 1,
+    sender: 'Interfarm',
+  });
+  assert.strictEqual(boscodNoPrice.totalNominal, 0, 'bosCOD tanpa harga harus tetap Rp 0');
+  assert.strictEqual(boscodNoPrice.priceStatus, '⚠️ PERLU INPUT HARGA');
+  assert.notStrictEqual(boscodNoPrice.toko, 'Fertipro', 'bosCOD tidak boleh sembarangan mencocokkan ke Fertipro');
+  console.log('  ✅ [PASS] bosCOD tanpa harga -> Tetap Rp 0 ("⚠️ PERLU INPUT HARGA") & tidak salah tebak ke Fertipro');
+
   // Bersihkan pending buffer dari test
   fs.writeFileSync(path.join(__dirname, 'storage', 'pending_finance.json'), '[]', 'utf8');
 
