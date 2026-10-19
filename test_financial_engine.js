@@ -293,6 +293,39 @@ const mockManifestList = [
   assert.notStrictEqual(boscodNoPrice.toko, 'Fertipro', 'bosCOD tidak boleh sembarangan mencocokkan ke Fertipro');
   console.log('  ✅ [PASS] bosCOD tanpa harga -> Tetap Rp 0 ("⚠️ PERLU INPUT HARGA") & tidak salah tebak ke Fertipro');
 
+  // Case D: Resi 201831121275 (Suparlan - PAKET FERTIPRO, COD Rp 395.000, Pengirim: FERTIPRO.ID)
+  const fileSuparlan = path.join(__dirname, 'storage', 'archive', '2026-10-17', 'batch_2026-10-17_14-07', '1792206605454_201831121275.pdf');
+  if (fs.existsSync(fileSuparlan)) {
+    const detailsSuparlan = await manifestService.extractLabelDetails(fileSuparlan);
+    assert.strictEqual(detailsSuparlan.resi, '201831121275');
+    assert.strictEqual(detailsSuparlan.nominal, 395000, 'Nominal harus Rp 395.000 langsung dari resi bosCOD Suparlan');
+    assert.strictEqual(detailsSuparlan.toko, 'Fertipro');
+
+    const pricingSuparlan = productCatalogService.resolvePricing({
+      nominal: detailsSuparlan.nominal,
+      product: detailsSuparlan.product,
+      qty: detailsSuparlan.qty,
+      sender: detailsSuparlan.sender,
+      toko: detailsSuparlan.toko,
+      isBoscod: true,
+    });
+    assert.strictEqual(pricingSuparlan.totalNominal, 395000, 'Total harus Rp 395.000 (bukan 1.185.000)!');
+    assert.strictEqual(pricingSuparlan.priceSource, 'RESI_BOSCOD');
+
+    // Uji jika tanpa harga di label: Harus mendeteksi Paket 1 Ha (395.000), BUKAN 3 Ha (1.185.000)
+    const pricingSuparlanNoPrice = productCatalogService.resolvePricing({
+      nominal: 0,
+      product: detailsSuparlan.product, // "PAKET FERTIPRO"
+      qty: 1,
+      sender: detailsSuparlan.sender,
+      toko: detailsSuparlan.toko,
+      isBoscod: true,
+    });
+    assert.strictEqual(pricingSuparlanNoPrice.totalNominal, 395000, 'Jika tanpa harga, harus mendeteksi Paket 1 Ha (Rp 395.000), bukan 3 Ha!');
+    assert.strictEqual(pricingSuparlanNoPrice.sku, 'FP-PAKET-1HA', 'SKU harus FP-PAKET-1HA');
+    console.log('  ✅ [PASS] Resi 201831121275 (Suparlan) -> Harga Rp 395.000 dari label & default Paket 1 Ha (bukan 3 Ha)');
+  }
+
   // Bersihkan pending buffer dari test
   fs.writeFileSync(path.join(__dirname, 'storage', 'pending_finance.json'), '[]', 'utf8');
 

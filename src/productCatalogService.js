@@ -502,7 +502,37 @@ function resolvePricing(item = {}) {
       }
     }
 
-    // Jika tidak ada harga dan tidak ada exact SKU, biarkan Rp 0 (hindari salah tebak Fertipro)
+    // 2) Jika toko Fertipro / pengirim Fertipro atau produk mengandung "FERTIPRO":
+    // User instruction: "dan misal itu tidak ada harganya harusnya dia mendetksi paket 1 bukan 3ha"
+    const pLower = (item.product || item.title || '').toLowerCase();
+    if (toko === 'Fertipro' || pLower.includes('fertipro')) {
+      const is3Ha = pLower.includes('3ha') || pLower.includes('3 ha') || /\b3\s*(?:ha|hektar|paket)\b/i.test(pLower);
+      const is2Ha = pLower.includes('2ha') || pLower.includes('2 ha') || /\b2\s*(?:ha|hektar|paket)\b/i.test(pLower);
+      const is4Ha = pLower.includes('4ha') || pLower.includes('4 ha') || /\b4\s*(?:ha|hektar|paket)\b/i.test(pLower);
+      const isJumbo = pLower.includes('25l') || pLower.includes('25 liter') || pLower.includes('jumbo') || pLower.includes('5ha');
+
+      const targetSku = is3Ha ? 'FP-PAKET-3HA' : (is2Ha ? 'FP-PAKET-2HA' : (is4Ha ? 'FP-PAKET-4HA' : (isJumbo ? 'FP-JUMBO-25L' : 'FP-PAKET-1HA')));
+      const matched = catalog.find(p => p.sku === targetSku);
+      if (matched) {
+        const total = matched.hargaStandar * qty;
+        return {
+          toko: 'Fertipro',
+          sku: matched.sku,
+          productName: matched.nama,
+          qty,
+          unitPrice: matched.hargaStandar,
+          totalNominal: total,
+          paymentMethod: isCod ? 'COD' : 'NON-COD',
+          paymentStatus: 'TERKIRIM',
+          priceStatus: 'HARGA OK',
+          priceSource: 'FERTIPRO_DEFAULT_1HA',
+          matchedCatalogItem: matched,
+          notes: item.notes || item.keterangan || (is3Ha ? 'Paket 3 Ha' : (is2Ha ? 'Paket 2 Ha' : 'Paket Standar 1 Ha')),
+        };
+      }
+    }
+
+    // 3) Jika tidak ada harga dan bukan Fertipro, biarkan Rp 0 (hindari salah tebak)
     return {
       toko,
       sku: (item.sku && item.sku !== '-' && !/^\d{12,20}$/.test(item.sku)) ? item.sku : '-',
@@ -616,6 +646,15 @@ function resolvePricing(item = {}) {
       // Exact substring boost if searchTitle is specific enough
       if (searchTitle.length >= 8 && prod.normalizedNama.includes(searchTitle)) {
         score += 8;
+      }
+
+      // Multi-hectare / bundle penalty: If product specifies 2 ha, 3 ha, 4 ha, but search query doesn't specify that number, penalize it!
+      const prodHaMatch = prod.normalizedNama.match(/\b([2-9])\s*ha\b/);
+      if (prodHaMatch) {
+        const haNum = prodHaMatch[1];
+        if (!searchTitle.includes(haNum)) {
+          score -= 12;
+        }
       }
 
       if (score > highestScore && score >= 5.0) {
