@@ -470,10 +470,8 @@ function formatListMessage(manifestList) {
     if (prod.length > 25) prod = prod.slice(0, 25) + '...';
     const qty = d.qty || 1;
     totalQty += qty;
-    const priceVal = (it.nominal && it.nominal > 0) ? it.nominal : (d.nominal || 0);
-    const priceStr = priceVal > 0 ? ` • Rp ${priceVal.toLocaleString('id-ID')}` : '';
 
-    msg += `${num}. <b>${rec}</b> — ${prod} (${qty} pcs)${priceStr}\n`;
+    msg += `${num}. <b>${rec}</b> — ${prod} (${qty} pcs)\n`;
   });
 
   msg += `\n📦 Total: <b>${manifestList.length}</b> paket (<b>${totalQty}</b> pcs) • 📄 <b>${pagesEstimate}</b> lembar A4\n` +

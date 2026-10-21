@@ -549,7 +549,6 @@ async function handleManualInput(ctx) {
         `👤 <b>Penerima:</b> ${escapeHtml(res.parsed.recipient)}\n` +
         `📞 <b>No HP:</b> ${escapeHtml(res.parsed.phone)}\n` +
         (res.parsed.toko ? `🏪 <b>Toko:</b> ${escapeHtml(res.parsed.toko)}\n` : '') +
-        (res.parsed.nominal > 0 ? `💰 <b>Harga:</b> Rp ${res.parsed.nominal.toLocaleString('id-ID')}\n` : '') +
         (res.parsed.keterangan ? `📝 <b>Keterangan:</b> ${escapeHtml(res.parsed.keterangan)}\n` : '') +
         `📦 Total antrean: <b>${res.totalInQueue}</b> resi (data lama telah digantikan).`,
         { parse_mode: 'HTML', reply_to_message_id: ctx.message.message_id }
@@ -572,7 +571,6 @@ async function handleManualInput(ctx) {
     // Normal Success
     const infoParts = [];
     if (res.parsed.toko) infoParts.push(`🏪 ${escapeHtml(res.parsed.toko)}`);
-    if (res.parsed.nominal > 0) infoParts.push(`💰 <b>${financeService.formatRupiah(res.parsed.nominal)}</b>`);
     if (res.parsed.keterangan) {
       const ketShort = res.parsed.keterangan.length > 25 ? res.parsed.keterangan.slice(0, 25) + '...' : res.parsed.keterangan;
       infoParts.push(escapeHtml(ketShort));
@@ -651,8 +649,8 @@ bot.on('document', async (ctx) => {
     }
 
     let metaNotice = '';
-    if (explicitPrice > 0) {
-      metaNotice = `💰 <b>${financeService.formatRupiah(explicitPrice)}</b>${explicitStore ? ` (${escapeHtml(explicitStore)})` : ''} • `;
+    if (explicitStore) {
+      metaNotice = `🏪 <b>${escapeHtml(explicitStore)}</b> • `;
     }
 
     const replyMsg = await ctx.reply(
@@ -757,10 +755,8 @@ bot.on('photo', async (ctx) => {
     const line2 = [];
     if (parsed.product && parsed.product !== '-' && parsed.product !== 'Paket') {
       const prodShort = parsed.product.length > 28 ? parsed.product.slice(0, 28) + '...' : parsed.product;
-      line2.push(escapeHtml(prodShort));
-    }
-    if (finalPriceVal > 0) {
-      line2.push(`💰 <b>${financeService.formatRupiah(finalPriceVal)}</b>`);
+      const qtyStr = (parsed.qty && parsed.qty > 1) ? ` (${parsed.qty} pcs)` : '';
+      line2.push(escapeHtml(prodShort) + qtyStr);
     }
 
     let photoReplyText = `📸 <b>Foto Diterima</b>\n`;
@@ -813,7 +809,7 @@ bot.on('text', async (ctx, next) => {
       if (updated) {
         const itemLabel = updated.title || updated.fileName || 'Resi';
         return ctx.reply(
-          `💰 <b>Harga Diset:</b> <b>${financeService.formatRupiah(priceFromText)}</b>${storeFromText ? ` (${escapeHtml(storeFromText)})` : ''}\n` +
+          `✅ <b>Data Keuangan Dicatat:</b>${storeFromText ? ` (${escapeHtml(storeFromText)})` : ''}\n` +
           `📄 <code>${escapeHtml(itemLabel)}</code>`,
           { parse_mode: 'HTML', reply_to_message_id: ctx.message.message_id }
         ).catch(() => {});
@@ -859,7 +855,7 @@ bot.command(['harga', 'setharga', 'nominal'], async (ctx) => {
 
   const itemLabel = updated.title || updated.fileName || 'Resi';
   return ctx.reply(
-    `💰 <b>Harga Diset:</b> <b>${financeService.formatRupiah(priceFromText)}</b>${storeFromText ? ` (${escapeHtml(storeFromText)})` : ''}\n` +
+    `✅ <b>Data Keuangan Dicatat:</b>${storeFromText ? ` (${escapeHtml(storeFromText)})` : ''}\n` +
     `📄 <code>${escapeHtml(itemLabel)}</code>`,
     { parse_mode: 'HTML', reply_to_message_id: ctx.message.message_id }
   ).catch(() => {});
